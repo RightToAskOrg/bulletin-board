@@ -38,5 +38,8 @@ pub fn make_merkle_tree(elements : &Vec<String>) -> Result<OurMerkleTree,Error> 
     elements_used.resize(next_pow2(elements_used.len()).max(2),"".to_string());
     let tree : MerkleTree<[u8; 32], MerkleHash, VecStore<_>> = MerkleTree::from_data(elements_used).unwrap();
     println!("Made Merkle Tree {:?}",&tree);
+    for i in 0..tree.len() {
+        println!("  {} : {} ",i,HashValue(tree.read_at(i).unwrap()));
+    }
     Ok(OurMerkleTree { tree, leaf_elements })
 }
