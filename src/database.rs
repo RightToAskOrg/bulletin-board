@@ -1,6 +1,9 @@
+//! This file contains the main functions that the program runs.
+//! The intention is that this should be stored in a database; for the moment it is just stored in RAM.
+
 use std::sync::{Mutex, MutexGuard};
-use crate::merkle::OurMerkleTree;
-use merkletree::proof::Proof;
+use crate::merkle::{OurMerkleTree, MerkleProof};
+use crate::hash::HashValue;
 
 struct GlobalState {
     pending_put_into_merkle_tree : Vec<String>,
@@ -37,15 +40,15 @@ pub fn initiate_merkle() -> anyhow::Result<[u8; 32]> {
 
 #[derive(serde::Serialize)]
 pub struct MerkleSummary {
-    root : [u8;32],
-    leafs : usize,
+    root : HashValue,
+    leafs : Vec<String>,
 }
 
 impl MerkleSummary {
     fn new(tree : &OurMerkleTree) -> Self {
         MerkleSummary{
-            root : tree.tree.root(),
-            leafs : tree.leaf_elements.len(),
+            root : HashValue(tree.tree.root()),
+            leafs : tree.leaf_elements.clone(),
         }
     }
 }
@@ -55,7 +58,10 @@ pub fn get_merkle_tree_summaries() -> Vec<MerkleSummary> {
     state.merkle_trees.iter().map(MerkleSummary::new).collect()
 }
 
-pub fn get_proof(index:usize) -> anyhow::Result<Proof<[u8; 32]>> {
+
+
+pub fn get_proof(index:usize) -> anyhow::Result<MerkleProof> {
     let state = state();
-    state.merkle_trees.last().ok_or_else(||anyhow::Error::msg("No tree"))?.tree.gen_proof(index)
+    let tree = state.merkle_trees.last().ok_or_else(||anyhow::Error::msg("No tree"))?;
+    tree.get_proof(index)
 }

@@ -1,55 +1,35 @@
-use sha2::{Sha256, Digest};
-use std::hash::Hasher;
-use merkletree::hash::Algorithm;
+//! This deals with the Merkle tree implementation.
+//! At the moment it is just a simple wrapper around the merkletree library, but this may change.
+
 use merkletree::merkle::{MerkleTree, next_pow2};
+use crate::hash::{MerkleHash, HashValue};
 use merkletree::store::VecStore;
 use anyhow::Error;
-
-pub struct MerkleHash(Sha256);
-
-impl MerkleHash {
-    pub fn new() -> MerkleHash {
-        MerkleHash(Sha256::new())
-    }
-}
-
-impl Default for MerkleHash {
-    fn default() -> MerkleHash {
-        MerkleHash::new()
-    }
-}
-
-impl Hasher for MerkleHash {
-    #[inline]
-    fn finish(&self) -> u64 {
-        unimplemented!() // not needed for Merkle tree.
-    }
-
-    #[inline]
-    fn write(&mut self, msg: &[u8]) {
-        self.0.update(msg)
-    }
-}
-
-impl Algorithm<[u8; 32]> for MerkleHash {
-    #[inline]
-    fn hash(&mut self) -> [u8; 32] {
-        let output = self.0.finalize_reset();
-        <[u8; 32]>::from(output)
-//        let mut h = [0u8; 32];
-//        self.0.result(&mut h);
-//        h
-    }
-
-    #[inline]
-    fn reset(&mut self) {
-        self.0.reset();
-    }
-}
+use anyhow::anyhow;
 
 pub struct OurMerkleTree {
     pub tree: MerkleTree<[u8; 32], MerkleHash, VecStore<[u8; 32]>>,
     pub leaf_elements : Vec<String>,
+}
+
+impl OurMerkleTree {
+    pub fn get_proof(&self,index:usize) -> anyhow::Result<MerkleProof> {
+        if index>= self.leaf_elements.len() { return Err(anyhow!("Index {} should be < size {}",index,self.leaf_elements.len())) }
+        let proof = self.tree.gen_proof(index)?;
+        let leaf = self.leaf_elements[index].clone();
+        Ok(MerkleProof{ leaf, index, proof: proof.lemma().iter().map(|h|HashValue(*h)).collect() })
+    }
+}
+
+/// A proof that a particular element is inside the Merkle Tree.
+#[derive(serde::Serialize, Debug)]
+pub struct MerkleProof {
+    /// the value used for the leaf
+    pub leaf : String,
+    /// the index of the leaf. Used to determine the path back from the proof.
+    pub index : usize,
+    /// An array of hash values, starting from the hashed leaf, and extending to the root of the tree.
+    pub proof : Vec<HashValue>,
 }
 
 pub fn make_merkle_tree(elements : &Vec<String>) -> Result<OurMerkleTree,Error> {
