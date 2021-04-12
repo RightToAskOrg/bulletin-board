@@ -21,3 +21,10 @@ Each new Merkle tree is built separately.
 
 Everything is stored in memory; restarting the server will discard any changes. 
 
+## Understanding
+
+The general theory can be found here https://sites.google.com/site/certificatetransparency/log-proofs-work.
+
+The following diagram shows the state of Merkle Tree after the inclusion of "a" and "b".
+
+![Screen Shot 2021-04-12 at 15.33.47](README.assets/Screen Shot 2021-04-12 at 15.33.47.png)
