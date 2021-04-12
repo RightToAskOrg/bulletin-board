@@ -8,13 +8,20 @@
 <body>
 
 <a href="AddEntry.html">Add an entry to the board</a> <br/>
-<a href="Proof.html">Get a proof that an element is in the most recent tree</a> <br/>
+<a href="Proof.html">Obsolete : Get a proof that an element is in the most recent tree</a> <br/>
+TODO update proof
 
 <h5> Direct API GET calls</h5>
 
-<a href="get_pending">get list of pending entries.</a> <br/>
-<a href="get_merkle_trees">get list of produced Merkle trees.</a> <br/>
-<a href="get_merkle_proof?index=0">get a proof.</a> <br/>
+<a href="get_pending_hash_values">Get hash values committed to but not yet published.</a> <br/>
+<a href="get_current_published_head">Get currently published head (asssuming there is one).</a> <br/>
+<a href="lookup_hash?hash=abcChangeThisToYourHashValue123">Query information about a single hash value.</a> <br/>
+TODO: query whole path from hash to published
+
+<h5>Obsolete</h5>
+<a href="get_pending">obsolete : get list of pending entries.</a> <br/>
+<a href="get_merkle_trees">obsolete : get list of produced Merkle trees.</a> <br/>
+<a href="get_merkle_proof?index=0">obsolete : get a proof.</a> <br/>
 
 </body>
 </html>

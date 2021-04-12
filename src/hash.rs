@@ -8,6 +8,8 @@ use sha2::{Sha256, Digest};
 use std::hash::Hasher;
 use merkletree::hash::Algorithm;
 use std::fmt::{Display, Formatter, Debug};
+use std::str::FromStr;
+use anyhow::anyhow;
 
 /// Define the hash type used in the Merkle trees. This is a wrapper around the Sha256 hash
 pub struct MerkleHash(Sha256);
@@ -60,8 +62,24 @@ impl Algorithm<[u8; 32]> for MerkleHash {
 /// This is really just a fixed length array of bytes, but this can be annoying to serialize to JSON as an array of numbers.
 /// So the main purpose of this wrapper is to allow serialization as a hex string, like that used by
 /// the program "sha256sum" or its ilk.
+#[derive(Clone, Copy, Hash, Eq, PartialEq)]
 pub struct HashValue(pub [u8;32]);
 
+impl FromStr for HashValue {
+    type Err = &'static str;
+
+    fn from_str(v: &str) -> Result<Self, Self::Err> {
+        if v.len()==64 {
+            let mut res = [0;32];
+            match hex::decode_to_slice(v,&mut res) {
+                Ok(_) => Ok(HashValue(res)),
+                Err(_) => Err("invalid hex string")
+            }
+        } else {
+            Err("hex string should be 64 characters")
+        }
+    }
+}
 impl Display for HashValue {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{}",&hex::encode(&self.0))
@@ -103,15 +121,16 @@ impl<'de> Visitor<'de> for HashValueVisitor {
     fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
     where
         E: de::Error, {
-        if v.len()==64 {
-            let mut res = [0;32];
-            match hex::decode_to_slice(v,&mut res) {
-                Ok(_) => Ok(HashValue(res)),
-                Err(_) => Err(E::custom("invalid hex string"))
-            }
-        } else {
-            Err(E::custom("hex string should be 64 characters"))
-        }
+        HashValue::from_str(v).map_err(|s|E::custom(s))
     }
 }
 
+pub fn parse_string_to_hash_vec(s:&str) -> anyhow::Result<Vec<HashValue>> {
+    let mut res = vec![];
+    if s.len()>0 {
+        for s_hash in s.split(';') {
+            res.push(HashValue::from_str(s_hash).map_err(|msg|anyhow!("Invalid hex string {} in {} : {}",s_hash,s,msg))?)
+        }
+    }
+    Ok(res)
+}

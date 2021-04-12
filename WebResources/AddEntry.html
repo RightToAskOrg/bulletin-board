@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <script src="util.js"></script>
+    <script src="common.js"></script>
     <script src="AddEntry.js"></script>
     <title>Add Entry to Bulletin Board</title>
 </head>
@@ -10,19 +11,19 @@
 
 <label for="entry">Entry to add: </label><input type="text" id="entry"/>
 <button id="AddEntry">Add</button>
-<button id="DoMerkle">Build Merkle Tree</button>
+<button id="DoMerkle">Publish new root</button>
 
 
 <div id="status">
     <h5>Status</h5>
 </div>
 
-<h5>Pending putting into Merkle tree</h5>
+<h5>Pending putting into published root</h5>
 <div id="PendingList">
 </div>
 
-<h5>Merkle Tree Roots</h5>
-<div id="MerkleTreeList">
+<h5>Current published root</h5>
+<div id="CurrentPublishedRoot">
 </div>
 
 </body>

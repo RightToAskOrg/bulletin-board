@@ -3,6 +3,10 @@
 mod database;
 mod merkle;
 mod hash;
+mod hash_history;
+mod merkle_storage;
+mod build_merkle;
+mod datasource;
 
 use actix_web::{HttpServer, middleware, web};
 use actix_web::web::Json;
@@ -10,6 +14,10 @@ use actix_web::{get, post};
 use crate::database::MerkleSummary;
 use actix_web::error::ErrorInternalServerError;
 use crate::merkle::MerkleProof;
+use crate::datasource::DataSource;
+use crate::hash::HashValue;
+use async_std::sync::Mutex;
+use crate::hash_history::HashInfo;
 
 #[macro_use] extern crate lazy_static;
 
@@ -69,8 +77,46 @@ async fn get_merkle_proof(command:web::Query<ProofRequest>) -> actix_web::Result
     }
 }
 
+// new structures
+
+#[derive(serde::Deserialize)]
+struct Publish {
+    data : String,
+}
+
+#[post("/submit_entry")]
+async fn submit_entry(command : web::Json<Publish>,datasource: web::Data<Mutex<DataSource>>) -> Json<Result<HashValue,String>> {
+    Json(datasource.lock().await.submit_leaf(&command.data).map_err(|e|e.to_string()))
+}
+
+#[get("/get_pending_hash_values")]
+async fn get_pending_hash_values(datasource: web::Data<Mutex<DataSource>>) -> Json<Vec<HashValue>> {
+    Json(datasource.lock().await.get_pending_hash_values())
+}
+
+#[get("/get_current_published_head")]
+async fn get_current_published_head(datasource: web::Data<Mutex<DataSource>>) -> Json<Option<HashValue>> {
+    Json(datasource.lock().await.get_current_published_head())
+}
+
+
+#[post("/request_new_published_head")]
+async fn request_new_published_head(datasource: web::Data<Mutex<DataSource>>) -> Json<Result<HashValue,String>> {
+    Json(datasource.lock().await.request_new_published_head().map_err(|e|e.to_string()))
+}
+
+#[derive(serde::Deserialize)]
+struct QueryHash {
+    hash : HashValue,
+}
+
+#[get("/lookup_hash")]
+async fn lookup_hash(query:web::Query<QueryHash>,datasource: web::Data<Mutex<DataSource>>) -> Json<Option<HashInfo>> {
+    Json(datasource.lock().await.lookup_hash(query.hash))
+}
+
 #[actix_rt::main]
-async fn main() -> std::io::Result<()> {
+async fn main() -> anyhow::Result<()> {
     // make a dummy Merkle tree for testing purposes.
     database::add_item_to_merkle("Jane");
     database::add_item_to_merkle("Elizabeth");
@@ -78,9 +124,18 @@ async fn main() -> std::io::Result<()> {
     database::add_item_to_merkle("Catherine");
     database::add_item_to_merkle("Lydia");
     let _ = database::initiate_merkle();
+
+    let datasource = web::Data::new(Mutex::new(DataSource::from_flatfiles()?));
     HttpServer::new(move|| {
         actix_web::App::new()
+            .app_data(datasource.clone())
             .wrap(middleware::Compress::default())
+            .service(submit_entry)
+            .service(get_pending_hash_values)
+            .service(get_current_published_head)
+            .service(request_new_published_head)
+            .service(lookup_hash)
+
             .service(get_pending)
             .service(add_to_board)
             .service(initiate_merkle_now)
@@ -91,5 +146,6 @@ async fn main() -> std::io::Result<()> {
     })
         .bind("0.0.0.0:8090")?
         .run()
-        .await
+        .await?;
+    Ok(())
 }

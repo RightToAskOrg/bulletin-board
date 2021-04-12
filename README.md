@@ -3,9 +3,9 @@
 This is a proof of concept for a server implementing a bulletin board and providing
 proofs of inclusion via Merkle trees.
 
-The API is a REST with JSON encoding.
+There is a simple REST API with JSON encoding.
 
-There is a simple html/javascript client provided for testing that uses the REST API. These are in the WebResources folder.
+There is a simple html/javascript client provided for testing that uses the REST API. Associated files are in the WebResources folder.
 
 ## To run
 
@@ -19,7 +19,11 @@ There is a simple html/javascript client provided for testing that uses the REST
 
 Each new Merkle tree is built separately.
 
-Everything is stored in memory; restarting the server will discard any changes. 
+A new API based on querying for hashes rather than indices is under development and is partway implemented. 
+It also deals with timestamps and prior published trees, and does not have a second gratuitous hashing for leaves.
+
+It saves and loads data from the directory "csv_database". 
+The files in there are human readable.
 
 ## Understanding
 

@@ -11,37 +11,45 @@ function failure(error) {
     status("Error : "+error);
 }
 
+
 function updatePending() {
     function success(data) {
-        // console.log(data);
+        console.log(data);
         const div = document.getElementById("PendingList");
         removeAllChildElements(div);
-        for (const line of data) add(div,"div").innerText=JSON.stringify(line);
+        for (const line of data) addLink(add(div,"div"),line);
     }
-    getWebJSON("get_pending",success,failure);
+    getWebJSON("get_pending_hash_values",success,failure);
 }
 
-function updateMerkleTrees() {
+function updatePublishedHead() {
     function success(data) {
-        // console.log(data);
-        const div = document.getElementById("MerkleTreeList");
+        console.log(data);
+        const div = document.getElementById("CurrentPublishedRoot");
         removeAllChildElements(div);
-        for (const line of data) add(div,"div").innerText=JSON.stringify(line);
+        if (data) addLink(div,data);
     }
-    getWebJSON("get_merkle_trees",success,failure);
+    getWebJSON("get_current_published_head",success,failure);
 }
 
 function addEntry() {
     let value_to_add = document.getElementById("entry").value;
     function success(result) {
-        status("Added "+value_to_add);
-        document.getElementById("entry").value="";
+        console.log(result);
+        if (result.Ok) {
+            const div = add(document.getElementById("status"),"div");
+            div.appendChild(document.createTextNode("Added "+value_to_add+" got commitment "))
+            addLink(div,result.Ok);
+            document.getElementById("entry").value="";
+        } else {
+            status("Tried to add "+value_to_add+" got Error message "+result.Err);
+        }
         updatePending();
     }
     const message = {
-        hash : value_to_add
+        data : value_to_add
     }
-    getWebJSON("add_to_board",success,failure,JSON.stringify(message),"application/json")
+    getWebJSON("submit_entry",success,failure,JSON.stringify(message),"application/json")
 }
 
 window.onload = function () {
@@ -51,12 +59,15 @@ window.onload = function () {
     });
     document.getElementById("DoMerkle").onclick = function () {
         function success(result) {
-            status("Made Merkle Tree "+result);
+            console.log(result);
+            if (result.Ok) {
+                status("Made new published head "+result.Ok);
+            } else status("Tried to make new published head, got error "+result.Err);
             updatePending();
-            updateMerkleTrees();
+            updatePublishedHead();
         }
-        getWebJSON("initiate_merkle_now",success,failure,JSON.stringify(""),"application/json")
+        getWebJSON("request_new_published_head",success,failure,JSON.stringify(""),"application/json")
     }
     updatePending();
-    updateMerkleTrees();
+    updatePublishedHead();
 }
