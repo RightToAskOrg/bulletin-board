@@ -4,57 +4,9 @@
 use serde::{Serialize, Serializer, Deserialize, Deserializer, de};
 use serde::de::Visitor;
 use std::fmt;
-use sha2::{Sha256, Digest};
-use std::hash::Hasher;
-use merkletree::hash::Algorithm;
 use std::fmt::{Display, Formatter, Debug};
 use std::str::FromStr;
 use anyhow::anyhow;
-
-/// Define the hash type used in the Merkle trees. This is a wrapper around the Sha256 hash
-pub struct MerkleHash(Sha256);
-
-// The implementations below are to enable MerkleHash to be used as a hash method.
-
-impl MerkleHash {
-    pub fn new() -> MerkleHash {
-        MerkleHash(Sha256::new())
-    }
-}
-
-impl Default for MerkleHash {
-    fn default() -> MerkleHash {
-        MerkleHash::new()
-    }
-}
-
-impl Hasher for MerkleHash {
-    #[inline]
-    fn finish(&self) -> u64 {
-        unimplemented!() // not needed for Merkle tree.
-    }
-
-    #[inline]
-    fn write(&mut self, msg: &[u8]) {
-        self.0.update(msg)
-    }
-}
-
-impl Algorithm<[u8; 32]> for MerkleHash {
-    #[inline]
-    fn hash(&mut self) -> [u8; 32] {
-        let output = self.0.finalize_reset();
-        <[u8; 32]>::from(output)
-//        let mut h = [0u8; 32];
-//        self.0.result(&mut h);
-//        h
-    }
-
-    #[inline]
-    fn reset(&mut self) {
-        self.0.reset();
-    }
-}
 
 
 

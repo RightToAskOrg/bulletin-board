@@ -1,7 +1,5 @@
 //! This file contains the actix web server wrapper around the functions
 
-mod database;
-mod merkle;
 mod hash;
 mod hash_history;
 mod merkle_storage;
@@ -11,73 +9,10 @@ mod datasource;
 use actix_web::{HttpServer, middleware, web};
 use actix_web::web::Json;
 use actix_web::{get, post};
-use crate::database::MerkleSummary;
-use actix_web::error::ErrorInternalServerError;
-use crate::merkle::MerkleProof;
 use crate::datasource::DataSource;
 use crate::hash::HashValue;
 use async_std::sync::Mutex;
 use crate::hash_history::{HashInfo, FullProof};
-
-#[macro_use] extern crate lazy_static;
-
-#[get("/get_pending")]
-async fn get_pending() -> actix_web::Result<Json<Vec<String>>> {
-    Ok(Json(database::get_pending()))
-}
-
-#[derive(serde::Deserialize)]
-struct AddToBoard {
-    hash : String,
-}
-
-#[post("/add_to_board")]
-async fn add_to_board(command : web::Json<AddToBoard>) -> Json<String> {
-    database::add_item_to_merkle(&command.hash);
-    Json("OK".to_string())
-}
-
-#[post("/initiate_merkle_now")]
-async fn initiate_merkle_now() -> actix_web::Result<Json<[u8;32]>> {
-    match database::initiate_merkle() {
-        Ok(res) => Ok(Json(res)),
-        Err(e) => {
-            println!("{:?}",e);
-            Err(ErrorInternalServerError("Could Not create"))
-        }
-    }
-
-}
-
-#[get("/get_merkle_trees")]
-async fn get_merkle_trees() -> Json<Vec<MerkleSummary>> {
-    Json(database::get_merkle_tree_summaries())
-}
-
-/// At the moment the proof request only applies to the last Merkle tree generated,
-/// and requests by the leaf index, which is not very useful. So this will change significantly.
-#[derive(serde::Deserialize)]
-struct ProofRequest {
-    index : usize,
-}
-
-// test with localhost:8090/get_merkle_proof?index=0
-#[get("/get_merkle_proof")]
-async fn get_merkle_proof(command:web::Query<ProofRequest>) -> actix_web::Result<Json<MerkleProof>> {
-    println!("Trying to get merkle proof index {}",command.index);
-    match database::get_proof(command.index) {
-        Ok(res) => {
-            println!("{:?}",res);
-            Ok(Json(res))
-        },
-        Err(e) => {
-            println!("{:?}",e);
-            Err(ErrorInternalServerError("Could Not create"))
-        }
-    }
-}
-
-// new structures
 
 #[derive(serde::Deserialize)]
 struct Publish {
@@ -128,14 +63,6 @@ async fn get_all_published_heads(datasource: web::Data<Mutex<DataSource>>) -> Js
 
 #[actix_rt::main]
 async fn main() -> anyhow::Result<()> {
-    // make a dummy Merkle tree for testing purposes.
-    database::add_item_to_merkle("Jane");
-    database::add_item_to_merkle("Elizabeth");
-    database::add_item_to_merkle("Mary");
-    database::add_item_to_merkle("Catherine");
-    database::add_item_to_merkle("Lydia");
-    let _ = database::initiate_merkle();
-
     let datasource = web::Data::new(Mutex::new(DataSource::from_flatfiles()?));
     HttpServer::new(move|| {
         actix_web::App::new()
@@ -148,12 +75,6 @@ async fn main() -> anyhow::Result<()> {
             .service(lookup_hash)
             .service(get_proof_chain)
             .service(get_all_published_heads)
-
-            .service(get_pending)
-            .service(add_to_board)
-            .service(initiate_merkle_now)
-            .service(get_merkle_trees)
-            .service(get_merkle_proof)
             .service(actix_files::Files::new("/", "WebResources/")
                 .use_last_modified(true).use_etag(true).index_file("index.html"))
     })
