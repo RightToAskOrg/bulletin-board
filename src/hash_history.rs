@@ -98,12 +98,31 @@ pub struct HashInfo {
     pub parent : Option<HashValue>,
 }
 
+impl HashInfo {
+    /// produce a more detailed structure including the hash value.
+    pub fn add_hash(&self,hash:HashValue) -> HashInfoWithHash {
+        HashInfoWithHash {
+            hash,
+            source: self.source.clone(),
+            parent: self.parent,
+        }
+    }
+}
+/// Full information on a hash
+#[derive(Debug,Clone,Serialize,Deserialize)]
+pub struct HashInfoWithHash {
+    pub hash : HashValue,
+    pub source : HashSource,
+    pub parent : Option<HashValue>,
+}
 
-pub struct HashChain {
-    hash : HashValue,
-    source : HashSource,
+/// A proof structure that a given hash value is included.
+#[derive(Debug,Clone,Serialize,Deserialize)]
+pub struct FullProof {
+    /// chain back to the start. Each element is the parent of the prior element.
+    pub chain : Vec<HashInfoWithHash>,
+    /// most recent published root, if it includes the last element of the chain. If None, then the last element of the chain has not been published yet.
+    pub published_root : Option<HashInfoWithHash>
 }
-pub fn get_hash_publication_chain(hash:HashValue) -> Vec<HashChain> {
-    unimplemented!() // TODO
-}
+
 

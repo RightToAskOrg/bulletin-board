@@ -4,7 +4,6 @@
 // Copyright 2018-2021 Andrew Conway. All rights reserved, but may be distributed under GPL 3.0 or later or other by arrangement.
 
 
-
 /** Add a new node of type addWhat to DOM element addTo, returning the new element. If the third argument is present, the new object is assigned that class. */
 function add(addTo,addWhat,className) {
     let res = document.createElement(addWhat);
@@ -12,6 +11,27 @@ function add(addTo,addWhat,className) {
     if (className) res.setAttribute("class",className);
     return res;
 }
+
+
+const svgNS = "http://www.w3.org/2000/svg";
+
+
+/** Add a new node of type addWhat to DOM element addTo, returning the new element. If the third argument is present, the new object is assigned that class. */
+function addSVG(addTo,addWhat,className) {
+    let res = document.createElementNS(svgNS,addWhat);
+    addTo.appendChild(res);
+    if (className) res.setAttribute("class",className);
+    return res;
+}
+
+/** like addSVG, except at start. */
+function prependSVG(addTo,addWhat,className) {
+    let res = document.createElementNS(svgNS,addWhat);
+    addTo.prepend(res);
+    if (className) res.setAttribute("class",className);
+    return res;
+}
+
 
 function removeAllChildElements(box) {
     while (box.firstChild) {

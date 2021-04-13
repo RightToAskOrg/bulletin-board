@@ -17,7 +17,8 @@ function updatePending() {
         console.log(data);
         const div = document.getElementById("PendingList");
         removeAllChildElements(div);
-        for (const line of data) addLink(add(div,"div"),line);
+        if (data.Ok) for (const line of data.Ok) addLink(add(div,"div"),line);
+        else if (data.Err) div.innerText="Error : "+data.Err;
     }
     getWebJSON("get_pending_hash_values",success,failure);
 }
@@ -27,7 +28,8 @@ function updatePublishedHead() {
         console.log(data);
         const div = document.getElementById("CurrentPublishedRoot");
         removeAllChildElements(div);
-        if (data) addLink(div,data);
+        if (data.Ok) addLink(div,data.Ok);
+        else if (data.Err) div.innerText="Error : "+data.Err;
     }
     getWebJSON("get_current_published_head",success,failure);
 }

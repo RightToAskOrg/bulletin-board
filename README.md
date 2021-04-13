@@ -13,14 +13,17 @@ There is a simple html/javascript client provided for testing that uses the REST
 * In this directory, execute `cargo run` which will download dependencies, compile, and run the server. You can stop it with control C.
 * Open a web browser at http://localhost:8090
 
-**Add an entry to the board** (http://localhost:8090/AddEntry.html) allows you to enter a series of strings.  When you click 'Build Merkle Tree', they are hashed and then incorporated as leaf nodes into a new Merkle Tree.  
+**Add an entry to the board** (http://localhost:8090/AddEntry.html) allows you to enter a series of strings, getting in
+     response a hash value. The board is committing to include that hash value in the next published Merkle tree.
+     Add at least one. The corresponding hash will appear in the status, with a link.
 
-**Get a proof of inclusion** (http://localhost:8090/Proof.html) takes an index (of a leaf) and returns a vector of sibling hashes in the most recently built tree.
+**Publish a new root**
+     When you click 'Publish new root', they are hashed and then incorporated as leaf nodes into a new Merkle Tree. All prior
+     entries are included.
 
-Each new Merkle tree is built separately.
-
-A new API based on querying for hashes rather than indices is under development and is partway implemented. 
-It also deals with timestamps and prior published trees, and does not have a second gratuitous hashing for leaves.
+**Get a proof of inclusion** Open (preferably in a new tab) one of the links for the hash values obtained for a string you entered.
+     This gives information about that hash value, and how to rederive it yourself. Click on 'Show Full Text Inclusion Proof' to
+      get a detailed proof linking your entered node to the newly published root.
 
 It saves and loads data from the directory "csv_database". 
 The files in there are human readable.

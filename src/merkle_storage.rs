@@ -153,7 +153,11 @@ impl BackendFlatfile {
         Ok(())
     }
 
+    pub fn get_all_published_heads(&self) -> Vec<HashValue> {
+        self.published.clone()
+    }
+
     pub fn save_inplay(&mut self,_in_play:&HashesInPlay) -> anyhow::Result<()> {
-        Ok(()) // done transparently.
+        Ok(()) // done implictly; one can rederive in_play from the recorded data.
     }
 }
