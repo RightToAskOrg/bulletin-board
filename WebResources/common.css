@@ -5,3 +5,28 @@ span.PartOfChain {
     border: 1px solid #ff9999;
     border-radius: 2px;
 }
+
+rect.TreeView {
+    rx : 3px;
+    ry : 3px;
+    stroke : black;
+    fill : beige;
+}
+
+line.TreeView {
+    stroke : black;
+    width : 2px;
+}
+
+text.TreeViewHash {
+    font-size:12px;
+    text-anchor : middle;
+    dominant-baseline : middle;
+}
+
+text.TreeViewLeaf {
+    font-size:12px;
+    text-anchor : middle;
+    dominant-baseline : middle;
+    font-weight: bold;
+}

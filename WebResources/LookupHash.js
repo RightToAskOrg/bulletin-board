@@ -146,6 +146,72 @@ function showTextInclusionProof(where,lastComputedHash) {
     getWebJSON(getURL("get_proof_chain",{hash:hashForThisPage}),success,failure);
 }
 
+function getSourceOfHash(hash) {
+    return new Promise((resolve, reject) => {
+        function success(data) {
+            if (data.Ok && data.Ok.source) resolve(data.Ok.source);
+            else reject(data.Err);
+        }
+        getWebJSON(getURL("lookup_hash",{hash:hash}),success,reject);
+    });
+}
+
+async function showTreeView(where) {
+    removeAllChildElements(where);
+    add(where,"h2").innerText="Tree view of children"
+    const svg = addSVG(where,"svg");
+    let children = [{hash:hashForThisPage}];
+    let width = 1000;
+    let y = 30;
+    let rectHeight = 40;
+    let maxRectWidth = 80;
+    while (children.length>0) {
+        // draw children
+        let gap = width/(children.length+1);
+        let rectWidth = Math.min(maxRectWidth,gap/2);
+        let x = gap;
+        let nextChildren = [];
+        for (const e of children) {
+            const mx = x+rectWidth/2;
+            const source = await getSourceOfHash(e.hash);
+            if (e.parent) {
+                const line = addSVG(svg,"line","TreeView");
+                line.setAttribute("x1",e.parent.x);
+                line.setAttribute("y1",e.parent.y);
+                line.setAttribute("x2",mx);
+                line.setAttribute("y2",y);
+            }
+            const rect = addSVG(svg,"rect","TreeView");
+            rect.setAttribute("x",x);
+            rect.setAttribute("y",y);
+            rect.setAttribute("width",rectWidth);
+            rect.setAttribute("height",rectHeight);
+            let text2 = null;
+            let descendents = [];
+            if (source.Leaf) { text2=source.Leaf.data; }
+            else if (source.Branch) {descendents = [source.Branch.left, source.Branch.right]; }
+            else if (source.Root) { descendents=source.Root.elements; }
+            for (const d of descendents) nextChildren.push({hash:d, parent:{x:mx,y:y+rectHeight}});
+            let hashText = addSVG(svg,"text","TreeViewHash");
+            hashText.setAttribute("x",mx);
+            hashText.setAttribute("y",y+rectHeight*(text2?0.3:0.5));
+            hashText.appendChild(document.createTextNode(e.hash.substring(0,4)+"…"));
+            if (text2) {
+                let hashText2 = addSVG(svg,"text","TreeViewLeaf");
+                hashText2.setAttribute("x",mx);
+                hashText2.setAttribute("y",y+rectHeight*0.7);
+                hashText2.appendChild(document.createTextNode(text2));
+            }
+            x+=gap;
+        }
+        y+=100;
+        children=nextChildren;
+    }
+    svg.setAttribute ("viewBox", "0 0 "+width+" "+y );
+    svg.setAttribute ("width", width );
+    svg.setAttribute ("height", y );
+}
+
 function describeNode(where,source) {
     if (source.Leaf) {
         add(where, "h5").innerText = "Leaf";
@@ -183,11 +249,18 @@ window.onload = function () {
                 describeNode(status,result.source);
                 const locations = await explainHowHashWasComputed(status, result.source, hashForThisPage);
 
-                if (!result.source.Root) {
+                if (!result.source.Root) { // add text proof option
                     const textProofDiv = add(status,"div");
                     const textProofButton = add(textProofDiv,"button");
                     textProofButton.innerText="Show Full Text Inclusion Proof";
                     textProofButton.onclick=function () { showTextInclusionProof(textProofDiv,locations.computedHashLocation); }
+                }
+
+                if (!result.source.Leaf) { // add tree view option
+                    const treeViewDiv = add(status,"div");
+                    const treeViewButton = add(treeViewDiv,"button");
+                    treeViewButton.innerText="Show Children of this node graphically";
+                    treeViewButton.onclick=function () { showTreeView(treeViewDiv); }
                 }
             }
         } else failure(result.Err);
