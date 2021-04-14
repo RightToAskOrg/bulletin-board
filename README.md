@@ -34,4 +34,22 @@ The general theory can be found here https://sites.google.com/site/certificatetr
 
 The following diagram shows the state of Merkle Tree after the inclusion of "a" and "b".
 
-![Screen Shot 2021-04-12 at 15.33.47](README.assets/Screen Shot 2021-04-12 at 15.33.47.png)
+<img src="README.assets/Screen Shot 2021-04-12 at 15.33.47.png" class="img-responsive" alt=""> </div>
+
+The bulletin board is built up incrementally as new nodes are added, with a "pending" list showing those that have not yet been incorporated into a full (sub-)tree, which needs 2^n nodes (for some n).  For example, when there are 4 elements, they are all included in a built tree, but when a 5th is added it is "pending" until another node is added.  The 5th and 6th nodes are combined into a pair, which is "pending" until a 7th and 8th are added, allowing the full tree to be built.
+
+If the user clicks "publish a new root" then all the pending nodes are included into the tree.  This is not guaranteed to produce a balanced tree, or even one in which the second-last row is full, but it does guarantee that the depth is no more than the log of the tree's total number of leaves, unless the computation has been interrupted. We call the root of this tree the **pre-root**.  The pre-root is then hashed, **along with the complete list of all other pre-roots generated so far** with a 02 byte and a timestamp prepended - the resulting hash is called the **published root**.
+
+The user can then continue add new strings, which are used to make a new tree.  This can be used to make many different trees.
+
+There are three kinds of nodes, distinguished by a different prefix byte:
+
+- leaf nodes hash a 00 byte, an 8-byte timestamp, then the data;
+- intermediate nodes, including the pre-root, hash a 01 byte, an 8-byte timestamp, then the child hashes;
+- the published root node hashes a 02 byte, an 8-byte timestamp, and the list of all pre-roots computed so far.
+
+This is intended to make an easy way for producing a new tree at regular intervals, such as daily.  At any time, a proof of inclusion into the current published root via any (current or past) tree can be requested.  The proof consists of
+
+- a list of sibling hashes for the tree in which the data item is included (i.e. a standard Merle-Tree inclusion proof, for the relevant pre-root); and
+- the list of all pre-roots included in the published root
+- the list of relevant timestamps
