@@ -181,7 +181,9 @@ async function showTreeView(where) {
                 line.setAttribute("x2",mx);
                 line.setAttribute("y2",y);
             }
-            const rect = addSVG(svg,"rect","TreeView");
+            const a = addSVG(svg,"a");
+            a.setAttribute("href","LookupHash.html?hash="+e.hash);
+            const rect = addSVG(a,"rect","TreeView");
             rect.setAttribute("x",x);
             rect.setAttribute("y",y);
             rect.setAttribute("width",rectWidth);
@@ -192,7 +194,7 @@ async function showTreeView(where) {
             else if (source.Branch) {descendents = [source.Branch.left, source.Branch.right]; }
             else if (source.Root) { descendents=source.Root.elements; }
             for (const d of descendents) nextChildren.push({hash:d, parent:{x:mx,y:y+rectHeight}});
-            let hashText = addSVG(svg,"text","TreeViewHash");
+            let hashText = addSVG(a,"text","TreeViewHash");
             hashText.setAttribute("x",mx);
             hashText.setAttribute("y",y+rectHeight*(text2?0.3:0.5));
             hashText.appendChild(document.createTextNode(e.hash.substring(0,4)+"…"));

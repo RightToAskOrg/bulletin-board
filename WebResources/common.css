@@ -10,7 +10,8 @@ rect.TreeView {
     rx : 3px;
     ry : 3px;
     stroke : black;
-    fill : beige;
+    fill : lightblue;
+    cursor: pointer;
 }
 
 line.TreeView {
