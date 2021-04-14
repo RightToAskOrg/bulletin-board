@@ -34,7 +34,7 @@ The general theory can be found here https://sites.google.com/site/certificatetr
 
 The following diagram shows the state of Merkle Tree after the inclusion of "a" and "b".
 
-![Screen Shot 2021-04-12 at 15.33.47](https://github.com/RightToAskOrg/bulletin-board-demo/edit/main/README.assets/Screen Shot 2021-04-12 at 15.33.47.png)
+![Screen Shot 2021-04-12 at 15.33.47]("https://github.com/RightToAskOrg/bulletin-board-demo/edit/main/README.assets/Screen Shot 2021-04-12 at 15.33.47.png")
 
 The bulletin board is built up incrementally as new nodes are added, with a "pending" list showing those that have not yet been incorporated into a full (sub-)tree, which needs 2^n nodes (for some n).  For example, when there are 4 elements, they are all included in a built tree, but when a 5th is added it is "pending" until another node is added.  The 5th and 6th nodes are combined into a pair, which is "pending" until a 7th and 8th are added, allowing the full tree to be built.
 
