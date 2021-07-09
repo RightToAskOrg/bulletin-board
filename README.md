@@ -3,7 +3,7 @@
 This is a proof of concept for a server implementing a bulletin board and providing
 proofs of inclusion via Merkle trees.
 
-There is a simple REST API with JSON encoding.
+There is a simple REST API with JSON encoding. Run `cargo doc` to generate rust docs - the API is a simple wrapper around the functions described in `target/doc/bulletin_board_demo/datasource/struct.DataSource.html`
 
 There is a simple html/javascript client provided for testing that uses the REST API. Associated files are in the WebResources folder.
 
