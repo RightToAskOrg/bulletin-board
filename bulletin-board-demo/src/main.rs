@@ -1,18 +1,15 @@
 //! This file contains the actix web server wrapper around the functions
 
-mod hash;
-mod hash_history;
-mod merkle_storage;
-mod build_merkle;
-mod datasource;
+
 
 use actix_web::{HttpServer, middleware, web};
 use actix_web::web::Json;
 use actix_web::{get, post};
-use crate::datasource::DataSource;
-use crate::hash::HashValue;
+use merkle_tree_bulletin_board::datasource::DataSource;
+use merkle_tree_bulletin_board::hash::HashValue;
 use async_std::sync::Mutex;
-use crate::hash_history::{HashInfo, FullProof};
+use merkle_tree_bulletin_board::hash_history::{HashInfo, FullProof};
+use std::path::PathBuf;
 
 #[derive(serde::Deserialize)]
 struct Publish {
@@ -60,10 +57,25 @@ async fn get_all_published_heads(datasource: web::Data<Mutex<DataSource>>) -> Js
     Json(datasource.lock().await.get_all_published_heads().map_err(|e|e.to_string()))
 }
 
+/// find the path containing web resources, static web files that will be served.
+/// This is usually in the directory `WebResources` but the program may be run from
+/// other directories. To be as robust as possible it will try likely possibilities.
+fn find_web_resources() -> PathBuf {
+    let rel_here = std::path::Path::new(".").canonicalize().expect("Could not resolve path .");
+    for p in rel_here.ancestors() {
+        let pp = p.join("WebResources");
+        if pp.is_dir() {return pp;}
+        let pp = p.join("bulletin-board-demo/WebResources");
+        if pp.is_dir() {return pp;}
+    }
+    panic!("Could not find WebResources. Please run in a directory containing it.")
+}
+
 
 #[actix_rt::main]
 async fn main() -> anyhow::Result<()> {
     let datasource = web::Data::new(Mutex::new(DataSource::from_flatfiles()?));
+    println!("Running demo webserver on http://localhost:8090");
     HttpServer::new(move|| {
         actix_web::App::new()
             .app_data(datasource.clone())
@@ -75,7 +87,7 @@ async fn main() -> anyhow::Result<()> {
             .service(lookup_hash)
             .service(get_proof_chain)
             .service(get_all_published_heads)
-            .service(actix_files::Files::new("/", "WebResources/")
+            .service(actix_files::Files::new("/", find_web_resources())
                 .use_last_modified(true).use_etag(true).index_file("index.html"))
     })
         .bind("0.0.0.0:8090")?
