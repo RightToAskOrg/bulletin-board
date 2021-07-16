@@ -8,6 +8,25 @@ use std::fmt::{Display, Formatter, Debug};
 use std::str::FromStr;
 use anyhow::anyhow;
 
+/// The error type for decoding a string into HashValue.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum FromHashValueError {
+    /// The string provided was not a valid hex string.
+    InvalidHexString,
+    /// The string was not exactly 64 characters long.
+    InvalidLength,
+}
+
+impl std::error::Error for FromHashValueError {}
+
+impl fmt::Display for FromHashValueError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            FromHashValueError::InvalidHexString => write!(f, "Invalid hex string"),
+            FromHashValueError::InvalidLength => write!(f, "Nash length should be 64 hex characters"),
+        }
+    }
+}
 
 
 /// # Hash result
@@ -18,17 +37,17 @@ use anyhow::anyhow;
 pub struct HashValue(pub [u8;32]);
 
 impl FromStr for HashValue {
-    type Err = &'static str;
+    type Err = FromHashValueError;
 
     fn from_str(v: &str) -> Result<Self, Self::Err> {
         if v.len()==64 {
             let mut res = [0;32];
             match hex::decode_to_slice(v,&mut res) {
                 Ok(_) => Ok(HashValue(res)),
-                Err(_) => Err("invalid hex string")
+                Err(_) => Err(FromHashValueError::InvalidHexString)
             }
         } else {
-            Err("hex string should be 64 characters")
+            Err(FromHashValueError::InvalidLength)
         }
     }
 }

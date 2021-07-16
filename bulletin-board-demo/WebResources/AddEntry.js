@@ -31,7 +31,7 @@ function updatePublishedHead() {
         if (data.Ok) addLink(div,data.Ok);
         else if (data.Err) div.innerText="Error : "+data.Err;
     }
-    getWebJSON("get_current_published_head",success,failure);
+    getWebJSON("get_most_recent_published_root",success,failure);
 }
 
 function addEntry() {
@@ -51,7 +51,7 @@ function addEntry() {
     const message = {
         data : value_to_add
     }
-    getWebJSON("submit_entry",success,failure,JSON.stringify(message),"application/json")
+    getWebJSON("submit_leaf",success,failure,JSON.stringify(message),"application/json")
 }
 
 window.onload = function () {
@@ -68,7 +68,7 @@ window.onload = function () {
             updatePending();
             updatePublishedHead();
         }
-        getWebJSON("request_new_published_head",success,failure,JSON.stringify(""),"application/json")
+        getWebJSON("request_new_published_root",success,failure,JSON.stringify(""),"application/json")
     }
     updatePending();
     updatePublishedHead();

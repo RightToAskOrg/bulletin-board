@@ -11,7 +11,7 @@ function addTimestamp(where,timestamp) {
 /**
  * Make a div explaining where the hash for some explained hash has come from
  * @param where{HTMLElement} Where the text should go.
- * @param source{{Leaf:{timestamp:number,data:string},Branch:{timestamp:number,left:string,right:string},Root:{timestamp:number,elements:[string]}}}
+ * @param source{{Leaf:{timestamp:number,data:string},Branch:{left:string,right:string},Root:{timestamp:number,elements:[string]}}}
  * @param expecting{?string} Optional hash that we are expecting.
  * @param lookingFor{?string} Optional hash that should be included in this explanation and which we want to highlight.
  * @returns {Promise<{computedHashLocation:HTMLElement,foundLookingFor:HTMLElement}>} The HTML element containing the computed hash, and the element we were looking for. Or null if not found.
@@ -51,7 +51,6 @@ async function explainHowHashWasComputed(where,source,expecting,lookingFor) {
         hashString("Posted Data",source.Leaf.data);
     } else if (source.Branch) {
         hashHex("Branch prefix",1,1);
-        hashHex("Timestamp",source.Branch.timestamp,8);
         hashHex("Left hash",source.Branch.left,32);
         hashHex("Right hash",source.Branch.right,32);
     } else if (source.Root) {
@@ -222,7 +221,6 @@ function describeNode(where,source) {
     }
     if (source.Branch) {
         add(where, "h5").innerText = "Branch";
-        addTimestamp(where, source.Branch.timestamp);
         addLabeledLink(add(where, "div"), "Left ", source.Branch.left);
         addLabeledLink(add(where, "div"), "Right ", source.Branch.right);
     }

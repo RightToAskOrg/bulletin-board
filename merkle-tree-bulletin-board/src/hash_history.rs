@@ -10,7 +10,7 @@ pub type Timestamp = u64;
 pub fn timestamp_now() -> Result<Timestamp,SystemTimeError> { Ok(SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)?.as_secs()) }
 
 /// Where a leaf comes from
-/// Hash = sha256(0|timestamp(bigendian)|data)
+/// Hash = sha256(0|timestamp(bigendian 64 bits)|data)
 #[derive(Debug,Clone,Serialize,Deserialize,Eq,PartialEq)]
 pub struct LeafHashHistory {
     /// when the leaf was received
@@ -29,11 +29,16 @@ impl LeafHashHistory {
     }
 }
 
-/// Where a branch comes from
-/// Hash = sha256(1|timestamp(bigendian)|left|right)
+/// Where a branch comes from. A branch has exactly two children, called left and right.
+///
+/// Every element in the right side of the tree will generally postdate every element on the left side of the tree,
+/// The exception is in the absurdly unlikely case of a hash collision, in which case the two sides will be swapped.
+///
+/// The depth of the left side will always be the same as the depth of the right side; this is a balanced tree.
+///
+/// Hash = sha256(1|left|right)
 #[derive(Debug,Copy,Clone,Serialize,Deserialize,Eq,PartialEq)]
 pub struct BranchHashHistory {
-    pub timestamp : Timestamp,
     pub left : HashValue,
     pub right : HashValue,
 }
@@ -42,7 +47,6 @@ impl BranchHashHistory {
     pub fn compute_hash(&self) -> HashValue {
         let mut hasher = Sha256::default();
         hasher.update(&[1]);
-        hasher.update(self.timestamp.to_be_bytes());
         hasher.update(&self.left.0);
         hasher.update(&self.right.0);
         HashValue(<[u8; 32]>::from(hasher.finalize()))
@@ -52,14 +56,14 @@ impl BranchHashHistory {
 /// Where a root comes from
 /// Hash = sha256(2|timestamp|elements concatenated)
 #[derive(Debug,Clone,Serialize,Deserialize,Eq,PartialEq)]
-pub struct PublishedRootHistory {
+pub struct RootHashHistory {
     /// time that the root was published.
     pub timestamp : Timestamp,
     /// elements in this root
     pub elements : Vec<HashValue>,
 }
 
-impl PublishedRootHistory {
+impl RootHashHistory {
     pub fn compute_hash(&self) -> HashValue {
         let mut hasher = Sha256::default();
         hasher.update(&[2]);
@@ -78,9 +82,9 @@ impl PublishedRootHistory {
 pub enum HashSource {
     Leaf(LeafHashHistory),
     Branch(BranchHashHistory),
-    Root(PublishedRootHistory),
+    Root(RootHashHistory),
 }
-
+/*
 impl HashSource {
     pub fn timestamp(&self) -> Timestamp {
         match self {
@@ -90,7 +94,7 @@ impl HashSource {
         }
     }
 }
-
+*/
 /// Full information on a hash
 #[derive(Debug,Clone,Serialize,Deserialize)]
 pub struct HashInfo {
