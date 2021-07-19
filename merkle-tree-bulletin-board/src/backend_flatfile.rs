@@ -27,7 +27,7 @@ impl BulletinBoardBackend for BackendFlatfile {
 
     fn get_all_leaves_and_branches_without_a_parent(&self) -> anyhow::Result<Vec<HashValue>> { self.memory.get_all_leaves_and_branches_without_a_parent() }
 
-    fn lookup_hash(&self, query: HashValue) -> anyhow::Result<Option<HashInfo>> { self.memory.lookup_hash(query) }
+    fn get_hash_info(&self, query: HashValue) -> anyhow::Result<Option<HashInfo>> { self.memory.get_hash_info(query) }
 
     fn publish(&mut self, transaction: DatabaseTransaction) -> anyhow::Result<()> {
         let file = OpenOptions::new().append(true).create(true).open(&self.file)?;

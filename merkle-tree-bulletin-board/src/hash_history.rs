@@ -95,10 +95,12 @@ impl HashSource {
     }
 }
 */
-/// Full information on a hash
+/// Full information on a hash, where it has come from and its parent, if any.
 #[derive(Debug,Clone,Serialize,Deserialize)]
 pub struct HashInfo {
+    /// Why the has was created.
     pub source : HashSource,
+    /// The branch parent, if it has one. Published root nodes do not count as parents.
     pub parent : Option<HashValue>,
 }
 

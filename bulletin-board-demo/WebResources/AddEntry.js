@@ -68,7 +68,7 @@ window.onload = function () {
             updatePending();
             updatePublishedHead();
         }
-        getWebJSON("request_new_published_root",success,failure,JSON.stringify(""),"application/json")
+        getWebJSON("order_new_published_root",success,failure,JSON.stringify(""),"application/json")
     }
     updatePending();
     updatePublishedHead();

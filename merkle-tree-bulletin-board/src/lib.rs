@@ -29,6 +29,20 @@ use crate::hash_history::{HashInfo, FullProof, HashSource, BranchHashHistory, Ro
 use std::time::Duration;
 
 /// This is the main API to the bulletin board library. This represents an entire bulletin board.
+/// You provide a backend of type [BulletinBoardBackend] (typically an indexed database),
+/// and it provides a suitable API.
+///
+/// There is a demo website that exposes the below API at
+/// <https://github.com/RightToAskOrg/bulletin-board-demo>
+/// Each API call is exposed as a REST call with relative URL
+/// the function name and the the hash query, if any, as a GET argument something like  `get_hash_info?hash=a425...56`.
+/// All results are returned as JSON encodings of the actual results. The leaf is submitted as a POST with body encoded JSON, name `data`
+///
+/// # Examples
+///
+/// ```
+/// ```
+///
 pub struct BulletinBoard<B:BulletinBoardBackend> {
     backend : B,
     /// None if there is an error, otherwise the currently growing forest.
@@ -51,11 +65,11 @@ impl DatabaseTransaction {
     /// Add a new root hash to the database.
     pub fn add_root_hash(&mut self, new_hash:HashValue, history: RootHashHistory)  { self.pending.push((new_hash,HashSource::Root(history))) }
 
-    fn lookup_hash(&self,query:HashValue) -> Option<HashSource> { self.pending.iter().find(|(hash,_)| *hash == query).map(|(_,source)|source.clone()) }
+    fn get_hash_info(&self,query:HashValue) -> Option<HashSource> { self.pending.iter().find(|(hash,_)| *hash == query).map(|(_,source)|source.clone()) }
     /// check for a hash collision by looking up both this and the database backend.
-    fn lookup_hash_completely(&self,backend:&impl BulletinBoardBackend,query:HashValue) -> anyhow::Result<Option<HashSource>> {
-        if let Some(info) = backend.lookup_hash(query)? { Ok(Some(info.source)) }
-        else { Ok(self.lookup_hash(query)) }
+    fn get_hash_info_completely(&self,backend:&impl BulletinBoardBackend,query:HashValue) -> anyhow::Result<Option<HashSource>> {
+        if let Some(info) = backend.get_hash_info(query)? { Ok(Some(info.source)) }
+        else { Ok(self.get_hash_info(query)) }
     }
 }
 
@@ -71,7 +85,7 @@ pub trait BulletinBoardBackend {
     /// This is used to recompute the starting state.
     fn get_all_leaves_and_branches_without_a_parent(&self) -> anyhow::Result<Vec<HashValue>>;
     /// given a hash, get information about what it represents, if anything.
-    fn lookup_hash(&self,query:HashValue) -> anyhow::Result<Option<HashInfo>>;
+    fn get_hash_info(&self, query:HashValue) -> anyhow::Result<Option<HashInfo>>;
 
     /// Store a transaction in the database.
     fn publish(&mut self,transaction:DatabaseTransaction) -> anyhow::Result<()>;
@@ -84,7 +98,7 @@ pub trait BulletinBoardBackend {
         let mut res = 0;
         let mut hash = *hash;
         loop {
-            match self.lookup_hash(hash)? {
+            match self.get_hash_info(hash)? {
                 Some(HashInfo{source:HashSource::Branch(history),..}) => {
                     res+=1;
                     hash = history.left;
@@ -133,7 +147,7 @@ impl <B:BulletinBoardBackend> BulletinBoard<B> {
     fn submit_leaf_work(&mut self,data:String) -> anyhow::Result<HashValue> {
         let history = LeafHashHistory{ timestamp: timestamp_now()?, data };
         let new_hash = history.compute_hash();
-        match self.backend.lookup_hash(new_hash)? {
+        match self.backend.get_hash_info(new_hash)? {
             Some(HashInfo{source:HashSource::Leaf(other_history), .. }) if other_history==history => {
                 Err(anyhow!("You submitted the same data as already present data"))
             }
@@ -190,7 +204,7 @@ impl <B:BulletinBoardBackend> BulletinBoard<B> {
     pub fn get_pending_hash_values(&self) -> anyhow::Result<Vec<HashValue>> {
         let mut currently_used : Vec<HashValue> = self.forest_or_err()?.get_subtrees();
         if let Some(published_root) = self.backend.get_most_recent_published_root()? {
-            if let Some(HashInfo{source:HashSource::Root(history),..}) = self.backend.lookup_hash(published_root)? {
+            if let Some(HashInfo{source:HashSource::Root(history),..}) = self.backend.get_hash_info(published_root)? {
                 currently_used.retain(|h|!history.elements.contains(h)) // remove already published elements.
             } else { return Err(anyhow!("The published root has has no info")) }
         }
@@ -200,17 +214,17 @@ impl <B:BulletinBoardBackend> BulletinBoard<B> {
     /// Request a new published root. This will contain a reference to each tree in
     /// the current forest. That is, each leaf or branch node that doesn't have a parent.
     /// This will return an error if called twice in rapid succession (same timestamp) with nothing added in the meantime, as it would otherwise produce the same hash.
-    pub fn request_new_published_root(&mut self) -> anyhow::Result<HashValue> {
+    pub fn order_new_published_root(&mut self) -> anyhow::Result<HashValue> {
         let history = RootHashHistory { timestamp: timestamp_now()?, elements: self.forest_or_err()?.get_subtrees() };
         let new_hash = history.compute_hash();
-        match self.backend.lookup_hash(new_hash)? {
+        match self.backend.get_hash_info(new_hash)? {
             Some(HashInfo{source:HashSource::Root(other_history), .. }) if other_history==history => {
                 Err(anyhow!("You tried to publish twice rapidly with no new data. Shame on you, you spammer."))
             }
             Some(hash_collision) => {
                 println!("Time to enter the lottery! Actually you have probably won without entering. You have just done a submission and found a hash collision between {:?} and {:?}",&hash_collision,&history);
                 std::thread::sleep(Duration::from_secs(1)); // work around - wait a second and retry, with a new timestamp.
-                self.request_new_published_root()
+                self.order_new_published_root()
             }
             _ =>  { // no hash collision, all is good. Should go here 99.99999999999999999999999999999..% of the time.
                 let mut transaction = DatabaseTransaction::default();
@@ -221,9 +235,10 @@ impl <B:BulletinBoardBackend> BulletinBoard<B> {
         }
     }
 
-    /// Get information about a HashValue, assuming it exists
-    pub fn lookup_hash(&self,query:HashValue) -> anyhow::Result<HashInfo> {
-        self.backend.lookup_hash(query)?.ok_or_else(||anyhow!("No such result"))
+    /// Get information about a HashValue, assuming it exists.
+    /// This includes its parent branch, if any, and how it is created.
+    pub fn get_hash_info(&self, query:HashValue) -> anyhow::Result<HashInfo> {
+        self.backend.get_hash_info(query)?.ok_or_else(||anyhow!("No such result"))
     }
 
 
@@ -232,7 +247,7 @@ impl <B:BulletinBoardBackend> BulletinBoard<B> {
         let mut chain = vec![];
         let mut node = query;
         loop {
-            if let Ok(node_info) = self.lookup_hash(node) {
+            if let Ok(node_info) = self.get_hash_info(node) {
                 chain.push(node_info.add_hash(node));
                 match node_info.parent {
                     Some(parent) => node=parent,
@@ -244,7 +259,7 @@ impl <B:BulletinBoardBackend> BulletinBoard<B> {
         }
         let published_root = {
             if let Ok(Some(published_root_hash)) = self.get_most_recent_published_root() {
-                if let Ok(node_info) = self.lookup_hash(published_root_hash) {
+                if let Ok(node_info) = self.get_hash_info(published_root_hash) {
                     if let HashSource::Root(history) = &node_info.source {
                         if history.elements.contains(&node) {
                             Some(node_info.add_hash(published_root_hash)) // It has been published!

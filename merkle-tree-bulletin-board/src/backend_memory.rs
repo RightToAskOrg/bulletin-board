@@ -32,7 +32,7 @@ impl BulletinBoardBackend for BackendMemory {
         Ok(self.hash_lookup.iter().filter(|(_,info)|ok(&info)).map(|(hash,_)|(*hash)).collect_vec())
     }
 
-    fn lookup_hash(&self, query: HashValue) -> anyhow::Result<Option<HashInfo>> {
+    fn get_hash_info(&self, query: HashValue) -> anyhow::Result<Option<HashInfo>> {
         Ok(self.hash_lookup.get(&query).map(|r|r.clone()))
     }
 

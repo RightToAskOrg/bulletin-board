@@ -47,11 +47,11 @@ pub struct GrowingForest {
 fn merge_hashes<B:BulletinBoardBackend>(left:HashValue,right:HashValue,backend:&B,transaction:&mut DatabaseTransaction) -> anyhow::Result<HashValue> {
     let history = BranchHashHistory{ left, right };
     let new_hash = history.compute_hash();
-    if let Some(hash_collision) = transaction.lookup_hash_completely(backend,new_hash)? {
+    if let Some(hash_collision) = transaction.get_hash_info_completely(backend,new_hash)? {
         println!("Time to enter the lottery! You have just found a hash collision between {:?} and {:?}. More likely the program is buggy.",&hash_collision,&history);
         let history = BranchHashHistory{ right, left };
         let new_hash = history.compute_hash();
-        if let Some(hash_collision) = transaction.lookup_hash_completely(backend,new_hash)? {
+        if let Some(hash_collision) = transaction.get_hash_info_completely(backend,new_hash)? {
             println!("Time to enter the lottery! You have just found a hash collision between {:?} and {:?} as well. I am sure the program is buggy. Giving up!",&hash_collision,&history);
             Err(anyhow!("Multiple hash clashes indicates that the program is buggy or you are the unluckiest person in all the universes everywhere. I think it is the former."))
         } else { // no hash collision, all is good. Should go here 99.99999999999999999999999999999..% of the remaining time. Except the first collision was probably a bug, so probably won't help.

@@ -33,9 +33,9 @@ async fn get_most_recent_published_root(datasource: web::Data<Mutex<BulletinBoar
 }
 
 
-#[post("/request_new_published_root")]
-async fn request_new_published_root(datasource: web::Data<Mutex<BulletinBoard<BackendFlatfile>>>) -> Json<Result<HashValue,String>> {
-    Json(datasource.lock().await.request_new_published_root().map_err(|e|e.to_string()))
+#[post("/order_new_published_root")]
+async fn order_new_published_root(datasource: web::Data<Mutex<BulletinBoard<BackendFlatfile>>>) -> Json<Result<HashValue,String>> {
+    Json(datasource.lock().await.order_new_published_root().map_err(|e|e.to_string()))
 }
 
 #[derive(serde::Deserialize)]
@@ -43,9 +43,9 @@ struct QueryHash {
     hash : HashValue,
 }
 
-#[get("/lookup_hash")]
-async fn lookup_hash(query:web::Query<QueryHash>, datasource: web::Data<Mutex<BulletinBoard<BackendFlatfile>>>) -> Json<Result<HashInfo,String>> {
-    Json(datasource.lock().await.lookup_hash(query.hash).map_err(|e|e.to_string()))
+#[get("/get_hash_info")]
+async fn get_hash_info(query:web::Query<QueryHash>, datasource: web::Data<Mutex<BulletinBoard<BackendFlatfile>>>) -> Json<Result<HashInfo,String>> {
+    Json(datasource.lock().await.get_hash_info(query.hash).map_err(|e|e.to_string()))
 }
 
 #[get("/get_proof_chain")]
@@ -84,8 +84,8 @@ async fn main() -> anyhow::Result<()> {
             .service(submit_leaf)
             .service(get_pending_hash_values)
             .service(get_most_recent_published_root)
-            .service(request_new_published_root)
-            .service(lookup_hash)
+            .service(order_new_published_root)
+            .service(get_hash_info)
             .service(get_proof_chain)
             .service(get_all_published_roots)
             .service(actix_files::Files::new("/", find_web_resources())

@@ -151,7 +151,7 @@ function getSourceOfHash(hash) {
             if (data.Ok && data.Ok.source) resolve(data.Ok.source);
             else reject(data.Err);
         }
-        getWebJSON(getURL("lookup_hash",{hash:hash}),success,reject);
+        getWebJSON(getURL("get_hash_info",{hash:hash}),success,reject);
     });
 }
 
@@ -265,5 +265,5 @@ window.onload = function () {
             }
         } else failure(result.Err);
     }
-    getWebJSON(getURL("lookup_hash",{hash:hashForThisPage}),success,failure);
+    getWebJSON(getURL("get_hash_info",{hash:hashForThisPage}),success,failure);
 }
