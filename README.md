@@ -38,7 +38,7 @@ The files in there are human readable.
 ## Rust docs
 
 There is a simple REST API with JSON encoding. Run `cargo doc --no-deps` to generate rust docs -
-the API is a simple wrapper around the functions described in `target/doc/merkle_tree_bulletin_board/bulletin_board_demo/datasource/struct.DataSource.html`
+the API is a simple wrapper around the functions described in `target/doc/merkle_tree_bulletin_board/struct.BulletinBoard.html`
 
 ## Understanding
 

@@ -15,6 +15,8 @@ use anyhow::anyhow;
 /// Store the "database" in a flat, csv file.
 /// This is actually mostly a wrapper around BackendMemory, except transactions also get written to a file, and there is a load from file method.
 /// Not usually useful for production as everything needs to be stored in memory.
+///
+/// Data is stored in a file in the format used by [write_transaction_to_csv]
 pub struct BackendFlatfile {
     memory : BackendMemory,
     file : PathBuf,
@@ -37,6 +39,9 @@ impl BulletinBoardBackend for BackendFlatfile {
 }
 
 impl BackendFlatfile {
+    /// Create a new flat file backed backend, storing data in the provided file.
+    /// The file will be read if it exists, and used to initialize the database.
+    /// When new elements are published, the file will be appended.
     pub fn new<P>(path: P) -> anyhow::Result<Self>
     where PathBuf: From<P>
     {
@@ -60,6 +65,8 @@ impl BackendFlatfile {
 ///   * 1 means a branch, history is the left and right hashes.
 ///   * 2 means a published root, history is the timestamp and then the hashes in this node.
 ///
+/// To read in transactions from a file, into an iterator, see [TransactionIterator::new]
+///
 /// # Examples
 ///
 /// ```
@@ -73,6 +80,29 @@ impl BackendFlatfile {
 /// transaction.add_leaf_hash(hash,history);
 /// merkle_tree_bulletin_board::backend_flatfile::write_transaction_to_csv(&transaction,&mut output).unwrap();
 /// assert_eq!(String::from_utf8(output).unwrap(),"0,68c3cefbe5b64fc51713cabe524cd35f2be6e52148a0f201476f16f378cb1aee,42,The answer\n\n");
+/// ```
+///
+/// The following more complex example shows multiple entries, and CSV sensitive characters "" and ,
+/// ```
+/// use merkle_tree_bulletin_board::DatabaseTransaction;
+/// use merkle_tree_bulletin_board::hash_history::LeafHashHistory;
+/// let mut output : Vec<u8> = vec![];
+/// let mut transaction : DatabaseTransaction = DatabaseTransaction::default();
+/// let history = LeafHashHistory{timestamp: 42 ,data: "The answer".to_string() };
+/// let hash = history.compute_hash();
+/// assert_eq!(hash.to_string(),"68c3cefbe5b64fc51713cabe524cd35f2be6e52148a0f201476f16f378cb1aee");
+/// transaction.add_leaf_hash(hash,history);
+/// let history = LeafHashHistory{timestamp: 43 ,data: r#"The new improved, "web 2.0" answer
+/// with a newline in the middle"#.to_string() };
+/// let hash = history.compute_hash();
+/// assert_eq!(hash.to_string(),"1d1633c405293e54ac8434c34dfa2532d59172979d1dc38a6389485b35f51762");
+/// transaction.add_leaf_hash(hash,history);
+/// merkle_tree_bulletin_board::backend_flatfile::write_transaction_to_csv(&transaction,&mut output).unwrap();
+/// assert_eq!(String::from_utf8(output).unwrap(),r#"0,68c3cefbe5b64fc51713cabe524cd35f2be6e52148a0f201476f16f378cb1aee,42,The answer
+/// 0,1d1633c405293e54ac8434c34dfa2532d59172979d1dc38a6389485b35f51762,43,"The new improved, ""web 2.0"" answer
+/// with a newline in the middle"
+///
+/// "#);
 /// ```
 pub fn write_transaction_to_csv<W: Write>(transaction:&DatabaseTransaction, writer:W) -> std::io::Result<()> {
     let mut csv_writer = WriterBuilder::new().flexible(true).from_writer(writer);
@@ -112,11 +142,14 @@ pub struct TransactionIterator<R:Read> {
 
 
 impl<R: Read> TransactionIterator<R> {
-    /// build a new transaction reader from a file.
+    /// Read in transactions from a CSV file written via [write_transaction_to_csv].
+    ///
+    /// The result is an iterator over transactions.
+    ///
     /// # Examples
     /// ```
     /// use merkle_tree_bulletin_board::backend_flatfile::TransactionIterator;
-    /// use merkle_tree_bulletin_board::hash_history::HashSource;
+    /// use merkle_tree_bulletin_board::hash_history::{HashSource, LeafHashHistory};
     /// use merkle_tree_bulletin_board::DatabaseTransaction;
     /// let file = "0,68c3cefbe5b64fc51713cabe524cd35f2be6e52148a0f201476f16f378cb1aee,42,The answer\n\n";
     /// let transactions = TransactionIterator::new(file.as_bytes());
@@ -126,12 +159,7 @@ impl<R: Read> TransactionIterator<R> {
     /// assert_eq!(trans1.pending.len(),1);
     /// let (hash,source) = trans1.pending[0].clone();
     /// assert_eq!(hash.to_string(),"68c3cefbe5b64fc51713cabe524cd35f2be6e52148a0f201476f16f378cb1aee");
-    /// if let HashSource::Leaf(history) = source {
-    ///   assert_eq!(history.timestamp,42);
-    ///   assert_eq!(history.data,"The answer");
-    /// } else {
-    ///   panic!("source is wrong type");
-    /// }
+    /// assert_eq!(source,HashSource::Leaf(LeafHashHistory{timestamp:42,data:"The answer".to_string()}));
     /// ```
     pub fn new(reader: R) -> TransactionIterator<R> {
         TransactionIterator { csv_reader : ReaderBuilder::new().has_headers(false).flexible(true).from_reader(reader), record: StringRecord::new() , read_ahead:None }

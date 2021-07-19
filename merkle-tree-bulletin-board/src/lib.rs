@@ -5,6 +5,23 @@
 //! published before the root hash is referenced by the root hash. This is done via
 //! Merkle Trees.
 //!
+//! It is a method of being open, specifically of allowing external people to verify
+//! the bulletin board. After entries are added, the board publishes a public root (256 bit hash).
+//! Different people can confirm that they are told the same hash to check that they
+//! are looking at the same bulletin board and are not getting shown different data.
+//! Anyone can find a proof that their data of interest is in the board; also anyone
+//! can retrieve the entire contents of the board and do whatever is wanted with it.
+//!
+//! As an example application, imagine a public election (this is of no use for an
+//! election with private votes, which is of course often very important). Everyone
+//! submits their vote to a central "of course we are totally trustworthy" authority (CA). The CA then publishes a root
+//! hash, which everyone can telephone their friends to check is the same. Also,
+//! everyone can easily check that *their* vote is recorded correctly (in time
+//! logarithmic in the number of entries, that is, quickly). Also, anyone can
+//! check the total list of votes (in time proportional to the number of votes)
+//! and see that the announced tally is correct. This means that even people who
+//! do not trust the CA can still trust the *result*, because it is verifiable.
+//!
 //! The basic idea is that the bulletin board keeps track of a collection of items
 //! that it commits to. These items are built up into a tree, where each node is labeled
 //! by a SHA256 hash. The root is periodically published publicly. Anyone can then check
@@ -32,15 +49,104 @@ use std::time::Duration;
 /// You provide a backend of type [BulletinBoardBackend] (typically an indexed database),
 /// and it provides a suitable API.
 ///
+/// There are two simple provided backends for testing, [backend_memory::BackendMemory] and [backend_flatfile::BackendFlatfile].
+///
 /// There is a demo website that exposes the below API at
 /// <https://github.com/RightToAskOrg/bulletin-board-demo>
 /// Each API call is exposed as a REST call with relative URL
 /// the function name and the the hash query, if any, as a GET argument something like  `get_hash_info?hash=a425...56`.
 /// All results are returned as JSON encodings of the actual results. The leaf is submitted as a POST with body encoded JSON, name `data`
 ///
-/// # Examples
+/// # Example
 ///
+/// In the following example, four elements are inserted, "A", "B", "C" and "D" into a previously empty bulletin board.
+/// A publication occurs after "C" and another publication after "D".
+///
+/// When A is inserted, it is a leaf forming a single tree of depth 0.
+/// When B is inserted after it, it is merged with A to make a tree of depth 1 with A on the left and B on the right.
+///
+/// When C is inserted, it forms a new single tree of depth 0. This does not merge with A or B as they are already taken,
+/// and it does not merge with the combined tree AB as that has a different depth and that would lead to an unbalanced tree.
+/// So there are now two pending trees, one containing AB and one containing C.
+///
+/// The first publication contains these two trees AB and C.
+///
+/// When D is inserted, it forms a tree with C, and the new tree CD merges with AB to make a new depth 2 tree ABCD.
+/// This single tree is in the second publication.
 /// ```
+/// use merkle_tree_bulletin_board::backend_memory::BackendMemory;
+/// use merkle_tree_bulletin_board::BulletinBoard;
+/// use merkle_tree_bulletin_board::hash::HashValue;
+/// use merkle_tree_bulletin_board::hash_history::{HashSource, LeafHashHistory, HashInfo, BranchHashHistory, RootHashHistory};
+///
+/// let backend = BackendMemory::default();
+/// let mut board = BulletinBoard::new(backend).unwrap();
+/// fn assert_is_leaf(source:HashSource,expected_data:&str) { // check that a source is indeed a leaf
+///     match source {
+///         HashSource::Leaf(LeafHashHistory{data : d,timestamp:_}) => assert_eq!(d,expected_data),
+///         _ => panic!("Not a leaf"),
+///     }
+/// }
+/// assert_eq!(board.get_all_published_roots().unwrap(),vec![]);
+/// assert_eq!(board.get_most_recent_published_root().unwrap(),None);
+/// assert_eq!(board.get_pending_hash_values().unwrap(),vec![]);
+/// #[allow(non_snake_case)]
+/// let hash_A : HashValue = board.submit_leaf("A").unwrap();
+/// // we have inserted A, which is a single tree but nothing is published.
+/// assert_eq!(board.get_hash_info(hash_A).unwrap().parent,None);
+/// assert_is_leaf(board.get_hash_info(hash_A).unwrap().source,"A");
+/// assert_eq!(board.get_all_published_roots().unwrap(),vec![]);
+/// assert_eq!(board.get_pending_hash_values().unwrap(),vec![hash_A]);
+/// #[allow(non_snake_case)]
+/// let hash_B : HashValue = board.submit_leaf("B").unwrap();
+/// // we have now inserted B, which will be merged into a tree with A on the left and B on the right.
+/// #[allow(non_snake_case)]
+/// let branch_AB : HashValue = board.get_hash_info(hash_A).unwrap().parent.unwrap();
+/// assert_eq!(board.get_hash_info(hash_B).unwrap().parent,Some(branch_AB));
+/// assert_is_leaf(board.get_hash_info(hash_B).unwrap().source,"B");
+/// assert_eq!(board.get_all_published_roots().unwrap(),vec![]);
+/// assert_eq!(board.get_pending_hash_values().unwrap(),vec![branch_AB]);
+/// assert_eq!(board.get_hash_info(branch_AB).unwrap(),HashInfo{source: HashSource::Branch(BranchHashHistory{left:hash_A,right:hash_B}) ,parent: None});
+/// #[allow(non_snake_case)]
+/// let hash_C : HashValue = board.submit_leaf("C").unwrap();
+/// // we have now inserted C, which will not be merged with branchAB as they are different depths and that would lead to an unbalanced tree.
+/// assert_eq!(board.get_hash_info(hash_C).unwrap().parent,None);
+/// assert_is_leaf(board.get_hash_info(hash_C).unwrap().source,"C");
+/// assert_eq!(board.get_all_published_roots().unwrap(),vec![]);
+/// assert_eq!(board.get_pending_hash_values().unwrap(),vec![branch_AB,hash_C]);
+/// // now publish! This will publish branch_AB and hash_C.
+/// let published1 = board.order_new_published_root().unwrap();
+/// match board.get_hash_info(published1).unwrap().source {
+///     HashSource::Root(RootHashHistory{timestamp:_,elements:e}) => assert_eq!(e,vec![branch_AB,hash_C]),
+///     _ => panic!("Should be a root"),
+/// }
+/// assert_eq!(board.get_all_published_roots().unwrap(),vec![published1]);
+/// assert_eq!(board.get_most_recent_published_root().unwrap(),Some(published1));
+/// assert_eq!(board.get_pending_hash_values().unwrap(),vec![]); // branch_AB,hash_C are still "pending" and can be merged with, but are no longer unpublished.
+/// // If another publication were done now, and the timestamp hadn't happened to change, board.order_new_published_root() would probably return an error as there is no new information or time stamp, and it is probably a bug we did two almost simultaneous publications.
+/// // add another element D, which will merge with C, making branch_CD, which will then merge with AB making a single tree ABCD.
+/// #[allow(non_snake_case)]
+/// let hash_D : HashValue = board.submit_leaf("D").unwrap();
+/// // we have inserted A, which is a single tree but nothing is published.
+/// #[allow(non_snake_case)]
+/// let branch_CD : HashValue = board.get_hash_info(hash_C).unwrap().parent.unwrap();
+/// assert_eq!(board.get_hash_info(hash_D).unwrap().parent,Some(branch_CD));
+/// assert_is_leaf(board.get_hash_info(hash_D).unwrap().source,"D");
+/// #[allow(non_snake_case)]
+/// let branch_ABCD : HashValue = board.get_hash_info(branch_AB).unwrap().parent.unwrap();
+/// assert_eq!(board.get_hash_info(branch_CD).unwrap(),HashInfo{source: HashSource::Branch(BranchHashHistory{left:hash_C,right:hash_D}) ,parent: Some(branch_ABCD)});
+/// assert_eq!(board.get_hash_info(branch_ABCD).unwrap(),HashInfo{source: HashSource::Branch(BranchHashHistory{left:branch_AB,right:branch_CD}) ,parent: None});
+/// assert_eq!(board.get_all_published_roots().unwrap(),vec![published1]);
+/// assert_eq!(board.get_pending_hash_values().unwrap(),vec![branch_ABCD]);
+/// // do another publication, which now only hash to contain branchABCD which includes everything, including things from before the last publication.
+/// let published2 = board.order_new_published_root().unwrap();
+/// match board.get_hash_info(published2).unwrap().source {
+///     HashSource::Root(RootHashHistory{timestamp:_,elements:e}) => assert_eq!(e,vec![branch_ABCD]),
+///     _ => panic!("Should be a root"),
+/// }
+/// assert_eq!(board.get_all_published_roots().unwrap(),vec![published1,published2]);
+/// assert_eq!(board.get_most_recent_published_root().unwrap(),Some(published2));
+/// assert_eq!(board.get_pending_hash_values().unwrap(),vec![]); // branch_ABCD is still "pending" and can be merged with, but is no longer unpublished.
 /// ```
 ///
 pub struct BulletinBoard<B:BulletinBoardBackend> {
@@ -170,13 +276,10 @@ impl <B:BulletinBoardBackend> BulletinBoard<B> {
     /// Submit some data to be included in the bulletin board, and get back a HashValue that the
     /// board commits to having in the history.
     /// Note that if the same data is submitted twice in the same second it will return an error (as this probably is)
-    pub fn submit_leaf(&mut self,data:&String) -> anyhow::Result<HashValue> {
-        if data.contains(',')||data.contains('\n')||data.contains('\r')||data.contains('\\')||data.contains('"') { Err(anyhow!("Submitted strings may not contain , \\ \" newline or carriage return"))}
-        else {
-            let res = self.submit_leaf_work(data.clone());
-            if res.is_err() { self.reload_current_forest()? }
-            res
-        }
+    pub fn submit_leaf(&mut self,data:&str) -> anyhow::Result<HashValue> {
+        let res = self.submit_leaf_work(data.to_string());
+        if res.is_err() { self.reload_current_forest()? }
+        res
     }
 
     /// Create a new bulletin board from a backend.
@@ -196,11 +299,13 @@ impl <B:BulletinBoardBackend> BulletinBoard<B> {
         self.backend.get_most_recent_published_root()
     }
 
+    /// Get a list of all published roots, ordered oldest to newest.
     pub fn get_all_published_roots(&self) -> anyhow::Result<Vec<HashValue>> {
         self.backend.get_all_published_roots()
     }
 
-    /// Get the currently committed to, but not yet published, hash values
+    /// Get the currently committed to, but not yet published, hash values.
+    /// Equivalently, get all branches and leaves that do not have parents, and which are not included in the last published root.
     pub fn get_pending_hash_values(&self) -> anyhow::Result<Vec<HashValue>> {
         let mut currently_used : Vec<HashValue> = self.forest_or_err()?.get_subtrees();
         if let Some(published_root) = self.backend.get_most_recent_published_root()? {
@@ -213,7 +318,7 @@ impl <B:BulletinBoardBackend> BulletinBoard<B> {
 
     /// Request a new published root. This will contain a reference to each tree in
     /// the current forest. That is, each leaf or branch node that doesn't have a parent.
-    /// This will return an error if called twice in rapid succession (same timestamp) with nothing added in the meantime, as it would otherwise produce the same hash.
+    /// This will return an error if called twice in rapid succession (same timestamp) with nothing added in the meantime, as it would otherwise produce the same hash, and is almost certainly not what was intended anyway.
     pub fn order_new_published_root(&mut self) -> anyhow::Result<HashValue> {
         let history = RootHashHistory { timestamp: timestamp_now()?, elements: self.forest_or_err()?.get_subtrees() };
         let new_hash = history.compute_hash();
@@ -242,7 +347,11 @@ impl <B:BulletinBoardBackend> BulletinBoard<B> {
     }
 
 
-    /// Convenience method to get a whole proof chain at once. It could be done via multiple calls.
+    /// Convenience method to get a whole proof chain at once, that is, the chain
+    /// from the provided hashvalue back to the most recent published root.
+    ///
+    /// This could easily be done via multiple calls
+    /// to the other APIs, and indeed that is how this is implemented.
     pub fn get_proof_chain(&self,query:HashValue) -> anyhow::Result<FullProof> {
         let mut chain = vec![];
         let mut node = query;
@@ -269,14 +378,5 @@ impl <B:BulletinBoardBackend> BulletinBoard<B> {
             } else {None}
         };
         Ok(FullProof{ chain, published_root })
-    }
-}
-
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {
-        assert_eq!(2 + 2, 4);
     }
 }
