@@ -16,7 +16,8 @@ use anyhow::anyhow;
 /// This is actually mostly a wrapper around BackendMemory, except transactions also get written to a file, and there is a load from file method.
 /// Not usually useful for production as everything needs to be stored in memory.
 ///
-/// Data is stored in a file in the format used by [write_transaction_to_csv]
+/// Data is stored in a file in the format used by [write_transaction_to_csv]. The file is appended to for each transaction,
+/// and not held open, although this may change in the future for performance reasons.
 pub struct BackendFlatfile {
     memory : BackendMemory,
     file : PathBuf,
@@ -31,9 +32,10 @@ impl BulletinBoardBackend for BackendFlatfile {
 
     fn get_hash_info(&self, query: HashValue) -> anyhow::Result<Option<HashInfo>> { self.memory.get_hash_info(query) }
 
-    fn publish(&mut self, transaction: DatabaseTransaction) -> anyhow::Result<()> {
+    fn publish(&mut self, transaction: &DatabaseTransaction) -> anyhow::Result<()> {
         let file = OpenOptions::new().append(true).create(true).open(&self.file)?;
-        write_transaction_to_csv(&transaction,file)?;
+        write_transaction_to_csv(&transaction,&file)?;
+        file.sync_data()?;
         self.memory.publish(transaction)
     }
 }
@@ -49,7 +51,7 @@ impl BackendFlatfile {
         let mut memory = BackendMemory::default();
         if let Ok(file_reader) = File::open(&file) { // file may not exist.
             for transaction in TransactionIterator::new(file_reader) {
-                memory.publish(transaction?)?
+                memory.publish(&transaction?)?
             }
         }
         Ok(BackendFlatfile{ memory, file })
@@ -210,7 +212,7 @@ impl<'r, R: Read> Iterator for TransactionIterator<R> {
             match self.csv_reader.read_record(&mut self.record) {
                 Err(err) => return Some(Err(anyhow::Error::from(err))),
                 Ok(true) => {
-                    println!("Read record with {} entries line {} byte {} self line {} byte {} beefore reading line {}",self.record.len(),self.record.position().unwrap().line(),self.record.position().unwrap().byte(),self.csv_reader.position().line(),self.csv_reader.position().byte(),line_before_reading_record);
+                    // println!("Read record with {} entries line {} byte {} self line {} byte {} before reading line {}",self.record.len(),self.record.position().unwrap().line(),self.record.position().unwrap().byte(),self.csv_reader.position().line(),self.csv_reader.position().byte(),line_before_reading_record);
                     if self.record.is_empty() { return Some(Ok(transaction)) } // This never triggers as blank records are silently skipped.
                     else {
                         match parse_record(&self.record) {

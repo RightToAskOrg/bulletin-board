@@ -36,22 +36,22 @@ impl BulletinBoardBackend for BackendMemory {
         Ok(self.hash_lookup.get(&query).map(|r|r.clone()))
     }
 
-    fn publish(&mut self, transaction: DatabaseTransaction) -> anyhow::Result<()> {
-        for (new_hash,source) in transaction.pending {
+    fn publish(&mut self, transaction: &DatabaseTransaction) -> anyhow::Result<()> {
+        for (new_hash,source) in &transaction.pending {
             match source {
                 HashSource::Leaf(history) => {
-                    self.leaf_lookup.insert(history.data.clone(),new_hash);
-                    self.hash_lookup.insert(new_hash,HashInfo{ source: HashSource::Leaf(history.clone()), parent: None });
+                    self.leaf_lookup.insert(history.data.clone(),*new_hash);
+                    self.hash_lookup.insert(*new_hash,HashInfo{ source: HashSource::Leaf(history.clone()), parent: None });
                 }
                 HashSource::Branch(history) => {
-                    self.hash_lookup.insert(new_hash,HashInfo{ source: HashSource::Branch(history), parent: None });
-                    self.add_parent(&history.left,new_hash);
-                    self.add_parent(&history.right,new_hash);
+                    self.hash_lookup.insert(*new_hash,HashInfo{ source: HashSource::Branch(history.clone()), parent: None });
+                    self.add_parent(&history.left,*new_hash);
+                    self.add_parent(&history.right,*new_hash);
 
                 }
                 HashSource::Root(history) => {
-                    self.hash_lookup.insert(new_hash,HashInfo{ source: HashSource::Root(history.clone()), parent: None });
-                    self.published.push(new_hash);
+                    self.hash_lookup.insert(*new_hash,HashInfo{ source: HashSource::Root(history.clone()), parent: None });
+                    self.published.push(*new_hash);
                 }
             }
         }

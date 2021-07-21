@@ -38,6 +38,7 @@ pub mod hash_history;
 pub mod growing_forest;
 pub mod backend_memory;
 pub mod backend_flatfile;
+pub mod backend_journal;
 
 use crate::growing_forest::{HashAndDepth, GrowingForest};
 use crate::hash::HashValue;
@@ -47,7 +48,8 @@ use std::time::Duration;
 
 /// This is the main API to the bulletin board library. This represents an entire bulletin board.
 /// You provide a backend of type [BulletinBoardBackend] (typically an indexed database),
-/// and it provides a suitable API.
+/// and it provides a suitable API. Actually, you are likely to wrap your provided backend
+/// inside a [backend_journal::BackendJournal] to provide efficient bulk verification support.
 ///
 /// There are two simple provided backends for testing, [backend_memory::BackendMemory] and [backend_flatfile::BackendFlatfile].
 ///
@@ -194,12 +196,14 @@ pub trait BulletinBoardBackend {
     fn get_hash_info(&self, query:HashValue) -> anyhow::Result<Option<HashInfo>>;
 
     /// Store a transaction in the database.
-    fn publish(&mut self,transaction:DatabaseTransaction) -> anyhow::Result<()>;
+    fn publish(&mut self,transaction:&DatabaseTransaction) -> anyhow::Result<()>;
 
 
     /// Get the depth of a subtree rooted at a given leaf or branch node) by following elements down the left side of each branch.
     /// A leaf node has depth 0.
     /// A branch node has depth 1 or more.
+    ///
+    /// The default implementation is to repeatedly call get_hash_info depth times; this is usually adequate as this is only used during startup.
     fn left_depth(&self,hash:&HashValue) -> anyhow::Result<usize> {
         let mut res = 0;
         let mut hash = *hash;
@@ -220,6 +224,8 @@ pub trait BulletinBoardBackend {
     /// * First find leaf or branch elements that do not have a parent. These are the trees that are in the forest
     /// * Find the depth of each of these elements.
     /// * Sort, highest first.
+    ///
+    /// The default implementation is usually adequate as it is only used during startup.
     fn compute_current_forest(&self) -> anyhow::Result<GrowingForest> {
         let mut pending : Vec<HashAndDepth> = Vec::default();
         for hash in self.get_all_leaves_and_branches_without_a_parent()? {
@@ -266,7 +272,7 @@ impl <B:BulletinBoardBackend> BulletinBoard<B> {
                 let mut transaction = DatabaseTransaction::default();
                 transaction.add_leaf_hash(new_hash,history);
                 self.current_forest.as_mut().ok_or_else(||anyhow!("Could not initialize from database"))?.add_leaf(new_hash, &self.backend, &mut transaction)?;
-                self.backend.publish(transaction)?;
+                self.backend.publish(&transaction)?;
                 Ok(new_hash)
             }
         }
@@ -334,7 +340,7 @@ impl <B:BulletinBoardBackend> BulletinBoard<B> {
             _ =>  { // no hash collision, all is good. Should go here 99.99999999999999999999999999999..% of the time.
                 let mut transaction = DatabaseTransaction::default();
                 transaction.add_root_hash(new_hash,history);
-                self.backend.publish(transaction)?;
+                self.backend.publish(&transaction)?;
                 Ok(new_hash)
             }
         }
