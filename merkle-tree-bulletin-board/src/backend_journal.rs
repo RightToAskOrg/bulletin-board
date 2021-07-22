@@ -160,7 +160,7 @@ impl <B:BulletinBoardBackend> BackendJournal<B> {
                 let should_be = crate::deduce_journal::deduce_journal_last_published_root_to_present(&res)?;
                 let recreate_name = res.rel_path("recreating.csv");
                 { // make the file in a different name to prevent clobbering something of possible diagnostic use if all is stuffed up to badly to recover.
-                    let file = File::open(&recreate_name)?;
+                    let file = File::create(&recreate_name)?;
                     for transaction in should_be {
                         write_transaction_to_csv(&transaction,&file)?;
                     }
