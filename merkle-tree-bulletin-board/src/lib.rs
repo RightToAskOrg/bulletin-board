@@ -286,6 +286,14 @@ impl <B:BulletinBoardBackend> BulletinBoard<B> {
     /// Submit some data to be included in the bulletin board, and get back a HashValue that the
     /// board commits to having in the history.
     /// Note that if the same data is submitted twice in the same second it will return an error (as this probably is)
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// let mut board = merkle_tree_bulletin_board::BulletinBoard::new(merkle_tree_bulletin_board::backend_memory::BackendMemory::default()).unwrap();
+    /// board.submit_leaf("A").unwrap();
+    /// // the board now has one leaf!
+    ///```
     pub fn submit_leaf(&mut self,data:&str) -> anyhow::Result<HashValue> {
         let res = self.submit_leaf_work(data.to_string());
         if res.is_err() { self.reload_current_forest()? }
@@ -305,17 +313,58 @@ impl <B:BulletinBoardBackend> BulletinBoard<B> {
     }
 
     /// Get the current published head that everyone knows. Everyone who is paying attention, that is. And who can remember 256 bits of gibberish.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// let mut board = merkle_tree_bulletin_board::BulletinBoard::new(merkle_tree_bulletin_board::backend_memory::BackendMemory::default()).unwrap();
+    /// assert_eq!(None,board.get_most_recent_published_root().unwrap());
+    /// board.submit_leaf("A").unwrap();
+    /// let hash1 = board.order_new_published_root().unwrap();
+    /// assert_eq!(Some(hash1),board.get_most_recent_published_root().unwrap());
+    /// board.submit_leaf("B").unwrap();
+    /// assert_eq!(Some(hash1),board.get_most_recent_published_root().unwrap());
+    /// let hash2 = board.order_new_published_root().unwrap();
+    /// assert_eq!(Some(hash2),board.get_most_recent_published_root().unwrap());
+    ///```
     pub fn get_most_recent_published_root(&self) -> anyhow::Result<Option<HashValue>> {
         self.backend.get_most_recent_published_root()
     }
 
     /// Get a list of all published roots, ordered oldest to newest.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// let mut board = merkle_tree_bulletin_board::BulletinBoard::new(merkle_tree_bulletin_board::backend_memory::BackendMemory::default()).unwrap();
+    /// assert!(board.get_all_published_roots().unwrap().is_empty());
+    /// board.submit_leaf("A").unwrap();
+    /// let hash1 = board.order_new_published_root().unwrap();
+    /// assert_eq!(vec![hash1],board.get_all_published_roots().unwrap());
+    /// board.submit_leaf("B").unwrap();
+    /// assert_eq!(vec![hash1],board.get_all_published_roots().unwrap());
+    /// let hash2 = board.order_new_published_root().unwrap();
+    /// assert_eq!(vec![hash1,hash2],board.get_all_published_roots().unwrap());
+    ///```
     pub fn get_all_published_roots(&self) -> anyhow::Result<Vec<HashValue>> {
         self.backend.get_all_published_roots()
     }
 
     /// Get the currently committed to, but not yet published, hash values.
     /// Equivalently, get all branches and leaves that do not have parents, and which are not included in the last published root.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// let mut board = merkle_tree_bulletin_board::BulletinBoard::new(merkle_tree_bulletin_board::backend_memory::BackendMemory::default()).unwrap();
+    /// assert!(board.get_pending_hash_values().unwrap().is_empty());
+    /// let hash = board.submit_leaf("A").unwrap();
+    /// assert_eq!(vec![hash],board.get_pending_hash_values().unwrap());
+    /// board.order_new_published_root().unwrap();
+    /// assert!(board.get_pending_hash_values().unwrap().is_empty());
+    /// board.submit_leaf("B").unwrap();
+    /// assert_eq!(1,board.get_pending_hash_values().unwrap().len()); // will be the tree formed from "A" and "B", not "B" itself.
+    ///```
     pub fn get_pending_hash_values(&self) -> anyhow::Result<Vec<HashValue>> {
         let mut currently_used : Vec<HashValue> = self.forest_or_err()?.get_subtrees();
         if let Some(published_root) = self.backend.get_most_recent_published_root()? {
@@ -352,6 +401,21 @@ impl <B:BulletinBoardBackend> BulletinBoard<B> {
 
     /// Get information about a HashValue, assuming it exists.
     /// This includes its parent branch, if any, and how it is created.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use merkle_tree_bulletin_board::hash_history::{HashSource, LeafHashHistory};
+    ///
+    /// let mut board = merkle_tree_bulletin_board::BulletinBoard::new(merkle_tree_bulletin_board::backend_memory::BackendMemory::default()).unwrap();
+    /// let hash = board.submit_leaf("A").unwrap();
+    /// let info = board.get_hash_info(hash).unwrap();
+    /// assert_eq!(info.parent,None);
+    /// match info.source {
+    ///         HashSource::Leaf(LeafHashHistory{data : d,timestamp:_}) => assert_eq!(d,"A"),
+    ///         _ => panic!("Not a leaf"),
+    /// }
+    /// ```
     pub fn get_hash_info(&self, query:HashValue) -> anyhow::Result<HashInfo> {
         self.backend.get_hash_info(query)?.ok_or_else(||anyhow!("No such result"))
     }
@@ -362,7 +426,29 @@ impl <B:BulletinBoardBackend> BulletinBoard<B> {
     ///
     /// This could easily be done via multiple calls
     /// to the other APIs, and indeed that is how this is implemented.
-    pub fn get_proof_chain(&self,query:HashValue) -> anyhow::Result<FullProof> {
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use merkle_tree_bulletin_board::hash_history::{HashSource, BranchHashHistory};
+    ///
+    /// let mut board = merkle_tree_bulletin_board::BulletinBoard::new(merkle_tree_bulletin_board::backend_memory::BackendMemory::default()).unwrap();
+    /// let hash_a = board.submit_leaf("a").unwrap();
+    /// let hash_b = board.submit_leaf("b").unwrap(); // made a branch out of a and b
+    /// let branch = board.get_pending_hash_values().unwrap()[0];
+    /// let root = board.order_new_published_root().unwrap();
+    /// let proof = board.get_proof_chain(hash_a).unwrap(); // get the inclusion proof for "a".
+    /// assert_eq!(proof.published_root.clone().unwrap().hash,root); // the root, which consists of the branch
+    /// match proof.published_root.unwrap().source {
+    ///     HashSource::Root(history) => assert_eq!(history.elements,vec![branch]),
+    ///     _ => panic!("Not root")
+    /// }
+    /// assert_eq!(proof.chain.len(),2);
+    /// assert_eq!(proof.chain[0].hash,hash_a);  // the leaf we asked for
+    /// assert_eq!(proof.chain[1].hash,branch);  // the parent of the leaf we asked for, which is in the published root.
+    /// assert_eq!(proof.chain[1].source,HashSource::Branch(BranchHashHistory{left: hash_a,right: hash_b}));
+    /// ```
+   pub fn get_proof_chain(&self,query:HashValue) -> anyhow::Result<FullProof> {
         let mut chain = vec![];
         let mut node = query;
         loop {
