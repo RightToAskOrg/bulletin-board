@@ -79,7 +79,7 @@ fn find_web_resources() -> PathBuf {
 #[actix_rt::main]
 async fn main() -> anyhow::Result<()> {
     let backend_flatfile = BackendFlatfile::new("database.csv")?;
-    let backend_journal = BackendJournal::new(backend_flatfile,"journal")?;
+    let backend_journal = BackendJournal::new(backend_flatfile,"journal",true)?;
     let datasource = web::Data::new(Mutex::new(BulletinBoard::new(backend_journal)?));
     println!("Running demo webserver on http://localhost:8090");
     HttpServer::new(move|| {

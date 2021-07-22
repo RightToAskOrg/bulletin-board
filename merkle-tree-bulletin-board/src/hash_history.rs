@@ -54,11 +54,13 @@ impl BranchHashHistory {
 }
 
 /// Where a root comes from
-/// Hash = sha256(2|timestamp|elements concatenated)
+/// Hash = sha256(2|timestamp|prior if exists otherwise byte 0|elements concatenated)
 #[derive(Debug,Clone,Serialize,Deserialize,Eq,PartialEq)]
 pub struct RootHashHistory {
     /// time that the root was published.
     pub timestamp : Timestamp,
+    /// the prior published root, if any.
+    pub prior : Option<HashValue>,
     /// elements in this root
     pub elements : Vec<HashValue>,
 }
@@ -68,6 +70,10 @@ impl RootHashHistory {
         let mut hasher = Sha256::default();
         hasher.update(&[2]);
         hasher.update(self.timestamp.to_be_bytes());
+        match self.prior {
+            None => hasher.update(&[0]),
+            Some(prior) => hasher.update(&prior.0),
+        }
         for elem in &self.elements {
             hasher.update(&elem.0);
         }

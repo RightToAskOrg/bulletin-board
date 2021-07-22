@@ -93,5 +93,20 @@ impl GrowingForest {
     pub fn get_subtrees(&self) -> Vec<HashValue> {
         self.forest.iter().map(|e|e.hash).collect()
     }
+
+    /// Make a new growing forest from an (unordered) list of hash values and a function from hash value to depth.
+    pub fn new<F:Fn(HashValue)->anyhow::Result<usize>>(hashes:&Vec<HashValue>,get_depth:F) -> anyhow::Result<Self> {
+        let mut pending : Vec<HashAndDepth> = Vec::default();
+        for hash in hashes {
+            pending.push(HashAndDepth{hash:*hash,depth:get_depth(*hash)?});
+        }
+        pending.sort_unstable_by_key(|e|e.depth);
+        pending.reverse();
+        Ok(GrowingForest { forest: pending })
+    }
+
+    /// get the last (if any) hash value in this tree.
+    pub(crate) fn last(&self) -> Option<HashValue> { self.forest.last().map(|hd|hd.hash) }
+
 }
 

@@ -65,7 +65,7 @@ impl BackendFlatfile {
 ///   and the second field is the hash value. After that are fields specifying how the object was created.
 ///   * 0 means a leaf, history is the timestamp (seconds since epoch) and then the string it was created from (appropriately csv escaped).
 ///   * 1 means a branch, history is the left and right hashes.
-///   * 2 means a published root, history is the timestamp and then the hashes in this node.
+///   * 2 means a published root, history is the timestamp, then the prior published root or empty field, and then the hashes in this node.
 ///
 /// To read in transactions from a file, into an iterator, see [TransactionIterator::new]
 ///
@@ -120,6 +120,10 @@ pub fn write_transaction_to_csv<W: Write>(transaction:&DatabaseTransaction, writ
                 csv_writer.write_field("2")?;
                 csv_writer.write_field(&hash.to_string())?;
                 csv_writer.write_field(&history.timestamp.to_string())?;
+                match history.prior {
+                    None => csv_writer.write_field("")?,
+                    Some(prior) => csv_writer.write_field(&prior.to_string())?,
+                }
                 for e in &history.elements {
                     csv_writer.write_field(&e.to_string())?;
                 }
@@ -189,12 +193,14 @@ impl<'r, R: Read> Iterator for TransactionIterator<R> {
                     HashSource::Branch(BranchHashHistory{ left : HashValue::from_str(record.get(2).unwrap())?, right: HashValue::from_str(record.get(3).unwrap())?})
                 }
                 Some("2") => { // published
-                    if record.len()<3 { return Err(anyhow!("Publish node should have at least 3 fields")); }
+                    if record.len()<4 { return Err(anyhow!("Publish node should have at least 4 fields")); }
                     let mut elements = vec![];
-                    for contained_hash in record.iter().dropping(3) {
+                    for contained_hash in record.iter().dropping(4) {
                         elements.push(HashValue::from_str(contained_hash)?);
                     }
-                    HashSource::Root(RootHashHistory{ timestamp : Timestamp::from_str(record.get(2).unwrap())?, elements })
+                    let prior_str = record.get(3).unwrap();
+                    let prior = if prior_str.is_empty() { None } else { Some(HashValue::from_str(prior_str)?)};
+                    HashSource::Root(RootHashHistory{ timestamp : Timestamp::from_str(record.get(2).unwrap())?, prior, elements })
                 }
                 _ => return Err(anyhow!("Invalid type specifier")),
             };

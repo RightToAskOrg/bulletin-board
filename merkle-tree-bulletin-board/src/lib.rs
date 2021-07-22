@@ -39,8 +39,9 @@ pub mod growing_forest;
 pub mod backend_memory;
 pub mod backend_flatfile;
 pub mod backend_journal;
+pub mod deduce_journal;
 
-use crate::growing_forest::{HashAndDepth, GrowingForest};
+use crate::growing_forest::GrowingForest;
 use crate::hash::HashValue;
 use anyhow::anyhow;
 use crate::hash_history::{HashInfo, FullProof, HashSource, BranchHashHistory, RootHashHistory, LeafHashHistory, timestamp_now};
@@ -49,7 +50,9 @@ use std::time::Duration;
 /// This is the main API to the bulletin board library. This represents an entire bulletin board.
 /// You provide a backend of type [BulletinBoardBackend] (typically an indexed database),
 /// and it provides a suitable API. Actually, you are likely to wrap your provided backend
-/// inside a [backend_journal::BackendJournal] to provide efficient bulk verification support.
+/// inside a [backend_journal::BackendJournal] to provide efficient bulk verification support,
+/// or you may use the computationally expensive [deduce_journal::deduce_journal] to compute
+/// the journal needed for bulk verification when needed.
 ///
 /// There are two simple provided backends for testing, [backend_memory::BackendMemory] and [backend_flatfile::BackendFlatfile].
 ///
@@ -58,6 +61,10 @@ use std::time::Duration;
 /// Each API call is exposed as a REST call with relative URL
 /// the function name and the the hash query, if any, as a GET argument something like  `get_hash_info?hash=a425...56`.
 /// All results are returned as JSON encodings of the actual results. The leaf is submitted as a POST with body encoded JSON, name `data`
+///
+/// The Merkle trees are grown as described in [GrowingForest]. Each published root consists of a hash of a small O(log leafs) number
+/// of leaf or branch nodes, and the prior published root. Each branch node in it is a perfectly balanced binary tree.
+/// Verification steps are described in [backend_journal::BackendJournal]
 ///
 /// # Example
 ///
@@ -117,9 +124,9 @@ use std::time::Duration;
 /// assert_eq!(board.get_all_published_roots().unwrap(),vec![]);
 /// assert_eq!(board.get_pending_hash_values().unwrap(),vec![branch_AB,hash_C]);
 /// // now publish! This will publish branch_AB and hash_C.
-/// let published1 = board.order_new_published_root().unwrap();
+/// let published1 : HashValue = board.order_new_published_root().unwrap();
 /// match board.get_hash_info(published1).unwrap().source {
-///     HashSource::Root(RootHashHistory{timestamp:_,elements:e}) => assert_eq!(e,vec![branch_AB,hash_C]),
+///     HashSource::Root(RootHashHistory{timestamp:_,elements:e,prior:None}) => assert_eq!(e,vec![branch_AB,hash_C]),
 ///     _ => panic!("Should be a root"),
 /// }
 /// assert_eq!(board.get_all_published_roots().unwrap(),vec![published1]);
@@ -143,7 +150,10 @@ use std::time::Duration;
 /// // do another publication, which now only hash to contain branchABCD which includes everything, including things from before the last publication.
 /// let published2 = board.order_new_published_root().unwrap();
 /// match board.get_hash_info(published2).unwrap().source {
-///     HashSource::Root(RootHashHistory{timestamp:_,elements:e}) => assert_eq!(e,vec![branch_ABCD]),
+///     HashSource::Root(RootHashHistory{timestamp:_,elements:e,prior:Some(prior)}) => {
+///         assert_eq!(e,vec![branch_ABCD]);
+///         assert_eq!(prior,published1);
+///     }
 ///     _ => panic!("Should be a root"),
 /// }
 /// assert_eq!(board.get_all_published_roots().unwrap(),vec![published1,published2]);
@@ -152,7 +162,7 @@ use std::time::Duration;
 /// ```
 ///
 pub struct BulletinBoard<B:BulletinBoardBackend> {
-    backend : B,
+    pub backend : B,
     /// None if there is an error, otherwise the currently growing forest.
     current_forest: Option<GrowingForest>,
 }
@@ -204,9 +214,9 @@ pub trait BulletinBoardBackend {
     /// A branch node has depth 1 or more.
     ///
     /// The default implementation is to repeatedly call get_hash_info depth times; this is usually adequate as this is only used during startup.
-    fn left_depth(&self,hash:&HashValue) -> anyhow::Result<usize> {
+    fn left_depth(&self,hash:HashValue) -> anyhow::Result<usize> {
         let mut res = 0;
-        let mut hash = *hash;
+        let mut hash = hash;
         loop {
             match self.get_hash_info(hash)? {
                 Some(HashInfo{source:HashSource::Branch(history),..}) => {
@@ -227,13 +237,7 @@ pub trait BulletinBoardBackend {
     ///
     /// The default implementation is usually adequate as it is only used during startup.
     fn compute_current_forest(&self) -> anyhow::Result<GrowingForest> {
-        let mut pending : Vec<HashAndDepth> = Vec::default();
-        for hash in self.get_all_leaves_and_branches_without_a_parent()? {
-            pending.push(HashAndDepth{hash,depth:self.left_depth(&hash)?});
-        }
-        pending.sort_unstable_by_key(|e|e.depth);
-        pending.reverse();
-        Ok(GrowingForest { forest: pending })
+        GrowingForest::new(&self.get_all_leaves_and_branches_without_a_parent()?,|h|self.left_depth(h))
     }
 
 }
@@ -326,7 +330,7 @@ impl <B:BulletinBoardBackend> BulletinBoard<B> {
     /// the current forest. That is, each leaf or branch node that doesn't have a parent.
     /// This will return an error if called twice in rapid succession (same timestamp) with nothing added in the meantime, as it would otherwise produce the same hash, and is almost certainly not what was intended anyway.
     pub fn order_new_published_root(&mut self) -> anyhow::Result<HashValue> {
-        let history = RootHashHistory { timestamp: timestamp_now()?, elements: self.forest_or_err()?.get_subtrees() };
+        let history = RootHashHistory { timestamp: timestamp_now()?, elements: self.forest_or_err()?.get_subtrees(), prior : self.get_most_recent_published_root()? };
         let new_hash = history.compute_hash();
         match self.backend.get_hash_info(new_hash)? {
             Some(HashInfo{source:HashSource::Root(other_history), .. }) if other_history==history => {

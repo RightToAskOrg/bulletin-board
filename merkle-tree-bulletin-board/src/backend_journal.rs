@@ -145,14 +145,32 @@ impl <B:BulletinBoardBackend> BackendJournal<B> {
     /// Add journalling to an existing backend, keeping journals in the provided directory (which may not exist).
     ///
     /// This will create the directory if it does not exist, and run [BackendJournal::verify_current_consistent] to
-    /// check that the pending file has not been truncated.
-    pub fn new<P>(main_journal:B,directory: P) -> anyhow::Result<Self>
+    /// check that the pending file has not been truncated. If that fails, and recreate_current_if_corrupt is true,
+    /// it will be recreated via [deduce_journal::deduce_journal_last_published_root_to_present].
+    pub fn new<P>(main_journal:B,directory: P,recreate_current_if_corrupt:bool) -> anyhow::Result<Self>
     where PathBuf: From<P>
     {
         let directory = PathBuf::from(directory);
         std::fs::create_dir_all(&directory)?;
         let res = BackendJournal{ main_journal, directory };
-        res.verify_current_consistent()?;
+        match res.verify_current_consistent() {
+            Ok(()) => {}
+            Err(e) if recreate_current_if_corrupt => {
+                println!("The pending journal is corrupt. Attempting to recreate. Error was {}",e);
+                let should_be = crate::deduce_journal::deduce_journal_last_published_root_to_present(&res)?;
+                let recreate_name = res.rel_path("recreating.csv");
+                { // make the file in a different name to prevent clobbering something of possible diagnostic use if all is stuffed up to badly to recover.
+                    let file = File::open(&recreate_name)?;
+                    for transaction in should_be {
+                        write_transaction_to_csv(&transaction,&file)?;
+                    }
+                    file.sync_data()?;
+                }
+                std::fs::rename(recreate_name,res.pending_path())?;
+                println!("Successfully recreated pending journal. Continuing.")
+            }
+            Err(e) => return Err(e)
+        }
         Ok(res)
     }
 }
