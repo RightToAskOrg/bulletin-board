@@ -20,16 +20,16 @@ use std::iter::FromIterator;
 ///
 /// There are a variety of things a verifier may wish to check:
 ///   - That a particular hash is included in a particular publication. This
-///     is quickly and easily handled with the [BulletinBoard::get_proof_chain] function.
+///     is quickly and easily handled with the [crate::BulletinBoard::get_proof_chain] function.
 ///   - The complete list of actions between two consecutive published roots *R* and *S*.
-///     - Get information on root *R* with [BulletinBoard::get_hash_info], and check its hash.
+///     - Get information on root *R* with [crate::BulletinBoard::get_hash_info], and check its hash.
 ///       The nodes in this will be the "starting" condition for running this algorithm. If you want to
 ///       verify the balanced property of the tree (which is important only for performance),
-///       then you can also get their depth via repeated [BulletinBoard::get_hash_info].
+///       then you can also get their depth via repeated [crate::BulletinBoard::get_hash_info].
 ///     - Get the file *S*.csv which contains all transactions between *R* and *S* (assuming *R* is the root before *S*)
 ///     - Play said file, checking all the hashings it implies, and whatever else you want to check about the content (content specific).
-///     - Compare the resulting nodes to [BulletinBoard::get_hash_info] applied to *S* and check its hash.
-///     This is implemented in [verifier::bulk_verify_between_two_published_elements].
+///     - Compare the resulting nodes to [crate::BulletinBoard::get_hash_info] applied to *S* and check its hash.
+///     This is implemented in [crate::verifier::bulk_verify_between_two_published_elements].
 ///   - The complete list of current actions between now and the last published root *R*. There
 ///     is not much point in doing this for security purposes, since different people could
 ///     be given current states by a malicious adversary. However it is worth doing from a file
@@ -39,10 +39,10 @@ use std::iter::FromIterator;
 ///     - Get information on root *R* as above.
 ///     - Get the file current.csv, as above. If the file does not exist, treat it as empty.
 ///     - Play said file, as above.
-///     - Compare the resulting nodes to [BulletinBoard::get_pending_hash_values], remembering that
+///     - Compare the resulting nodes to [crate::BulletinBoard::get_pending_hash_values], remembering that
 ///       that does not include nodes that were in *R*.
 ///   - The entire transcript from the beginning of time.
-///     - Get a list of published roots via [BulletinBoard::get_all_published_roots]
+///     - Get a list of published roots via [crate::BulletinBoard::get_all_published_roots]
 ///     - Iterate the above steps for each consecutive pair of roots.
 pub struct BackendJournal<B:BulletinBoardBackend> {
     main_backend: B,
@@ -248,7 +248,7 @@ pub enum StartupVerification {
     None,
     /// Check the sanity of the pending.csv file which may easily get truncated or corrupted if there is not a graceful shutdown. Uses [BackendJournal::verify_current_consistent].
     SanityCheckPending,
-    /// Check the sanity of the pending.csv file like SanityCheckPending, and regenerate it automatically if needed using [deduce_journal::deduce_journal_last_published_root_to_present]. This is probably the most useful in production.
+    /// Check the sanity of the pending.csv file like SanityCheckPending, and regenerate it automatically if needed using [crate::deduce_journal::deduce_journal_last_published_root_to_present]. This is probably the most useful in production.
     SanityCheckAndRepairPending,
     /// Something has gone badly wrong. Regenerate all journal files from the database. This may take some time...
     RebuildAllJournals,

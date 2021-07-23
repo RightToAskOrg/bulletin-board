@@ -76,8 +76,8 @@ pub fn verify_proof(data_to_be_proven:&str,published_root:HashValue,proof:&FullP
 /// Note that R may be non-existant, if S is the first root.
 ///
 /// filename is the name of a file containing a bulk list of the transactions between
-/// roots R and S, formatted as in [backend_flatfile::write_transaction_to_csv].
-/// [backend_journal::BackendJournal] will produce this in a file called <hash of S>.csv
+/// roots R and S, formatted as in [crate::backend_flatfile::write_transaction_to_csv].
+/// [crate::backend_journal::BackendJournal] will produce this in a file called <hash of S>.csv
 ///
 /// Returns None if OK, otherwise a description of something that was wrong.
 ///
