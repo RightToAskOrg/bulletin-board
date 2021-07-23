@@ -44,23 +44,23 @@ use std::iter::FromIterator;
 ///     - Get a list of published roots via [BulletinBoard::get_all_published_roots]
 ///     - Iterate the above steps for each consecutive pair of roots.
 pub struct BackendJournal<B:BulletinBoardBackend> {
-    main_journal: B,
+    main_backend: B,
     directory : PathBuf,
 }
 
 impl <B:BulletinBoardBackend> BulletinBoardBackend for BackendJournal<B> {
-    fn get_all_published_roots(&self) -> anyhow::Result<Vec<HashValue>> { self.main_journal.get_all_published_roots()  }
+    fn get_all_published_roots(&self) -> anyhow::Result<Vec<HashValue>> { self.main_backend.get_all_published_roots()  }
 
-    fn get_most_recent_published_root(&self) -> anyhow::Result<Option<HashValue>> { self.main_journal.get_most_recent_published_root() }
+    fn get_most_recent_published_root(&self) -> anyhow::Result<Option<HashValue>> { self.main_backend.get_most_recent_published_root() }
 
-    fn get_all_leaves_and_branches_without_a_parent(&self) -> anyhow::Result<Vec<HashValue>> { self.main_journal.get_all_leaves_and_branches_without_a_parent() }
+    fn get_all_leaves_and_branches_without_a_parent(&self) -> anyhow::Result<Vec<HashValue>> { self.main_backend.get_all_leaves_and_branches_without_a_parent() }
 
-    fn get_hash_info(&self, query: HashValue) -> anyhow::Result<Option<HashInfo>> { self.main_journal.get_hash_info(query) }
+    fn get_hash_info(&self, query: HashValue) -> anyhow::Result<Option<HashInfo>> { self.main_backend.get_hash_info(query) }
 
     /// Publish both to the original backend, and the journal.
     /// The original is published to first; this means that in the case of an unfortunate power loss or similar, the journal may miss the last record.
     fn publish(&mut self, transaction: &DatabaseTransaction) -> anyhow::Result<()> {
-        self.main_journal.publish(transaction)?;
+        self.main_backend.publish(transaction)?;
         {
             let file = OpenOptions::new().append(true).create(true).open(&self.pending_path())?;
             write_transaction_to_csv(&transaction,&file)?;
@@ -112,9 +112,9 @@ impl <B:BulletinBoardBackend> BackendJournal<B> {
     /// pending file, which may have resulted from a bad shutdown.
     pub fn verify_current_consistent(&self) -> anyhow::Result<()> {
         // First get the nodes that are left over from the last publication.
-        let preexisting_nodes : Vec<HashValue> = if let Some(last_root) = self.main_journal.get_most_recent_published_root()? {
+        let preexisting_nodes : Vec<HashValue> = if let Some(last_root) = self.main_backend.get_most_recent_published_root()? {
             if !std::path::Path::new(&self.hash_path(last_root)).exists() { return Err(anyhow!("Last published root hash does not exist")); }
-            match self.main_journal.get_hash_info(last_root)?.unwrap() {
+            match self.main_backend.get_hash_info(last_root)?.unwrap() {
                 HashInfo { source: HashSource::Root(history), .. } => history.elements,
                 _ => return Err(anyhow!("Last published root hash is not a root")),
             }
@@ -136,42 +136,160 @@ impl <B:BulletinBoardBackend> BackendJournal<B> {
                 }
             }
         }
-        let expected : Vec<HashValue> = self.main_journal.get_all_leaves_and_branches_without_a_parent()?;
+        let expected : Vec<HashValue> = self.main_backend.get_all_leaves_and_branches_without_a_parent()?;
         let expected_set : HashSet<HashValue> = HashSet::from_iter(expected.into_iter());
         if expected_set != current_nodes { return Err(anyhow!("Expecting to get {:#?} as nodes without parents; actually got {:#?}.",&expected_set,&current_nodes))}
         Ok(())
     }
 
+    /// recreate a data file from a set of transactions.
+    fn recreate(&self,name:PathBuf,should_be:Vec<DatabaseTransaction>) -> anyhow::Result<()> {
+        let recreate_name = self.rel_path("recreating.csv");
+        { // make the file in a different name to prevent clobbering something of possible diagnostic use if all is stuffed up to badly to recover.
+            let file = File::create(&recreate_name)?;
+            for transaction in should_be {
+                write_transaction_to_csv(&transaction,&file)?;
+            }
+            file.sync_data()?;
+        }
+        std::fs::rename(recreate_name,&name)?;
+        println!("Successfully recreated {}.",name.file_name().unwrap().to_string_lossy());
+        Ok(())
+    }
+
+    /// Get the underlying backend. Used mainly for testing.
+    pub fn into_inner(self) -> B { self.main_backend }
+
     /// Add journalling to an existing backend, keeping journals in the provided directory (which may not exist).
     ///
-    /// This will create the directory if it does not exist, and run [BackendJournal::verify_current_consistent] to
-    /// check that the pending file has not been truncated. If that fails, and recreate_current_if_corrupt is true,
-    /// it will be recreated via [deduce_journal::deduce_journal_last_published_root_to_present].
-    pub fn new<P>(main_journal:B,directory: P,recreate_current_if_corrupt:bool) -> anyhow::Result<Self>
+    /// This will create the directory if it does not exist, and run verification based on the verification
+    /// flag. See [StartupVerification] for details.
+    ///
+    /// # Examples
+    ///
+    /// Normal use:
+    /// ```
+    /// use merkle_tree_bulletin_board::backend_journal::{BackendJournal, StartupVerification};
+    /// use merkle_tree_bulletin_board::backend_memory::BackendMemory;
+    /// use merkle_tree_bulletin_board::BulletinBoard;
+    /// let mut  dir = tempdir::TempDir::new("journal").unwrap();
+    /// let journal = BackendJournal::new(BackendMemory::default(),dir.path(),StartupVerification::SanityCheckAndRepairPending).unwrap();
+    /// let mut board = BulletinBoard::new(journal).unwrap();
+    /// board.submit_leaf("a").unwrap();
+    /// assert_eq!(true,dir.path().join("pending.csv").exists(),"created pending file with leaf a");
+    /// let hash = board.order_new_published_root().unwrap();
+    /// assert_eq!(false,dir.path().join("pending.csv").exists(),"nothing pending");
+    /// assert_eq!(true,dir.path().join(&(hash.to_string()+".csv")).exists(),"A new root published");
+    /// board.submit_leaf("b").unwrap();
+    /// assert_eq!(true,dir.path().join("pending.csv").exists(),"new pending file created containing b and branch ab");
+    /// ```
+    ///
+    /// Showing startup verification
+    ///
+    /// ```
+    /// use merkle_tree_bulletin_board::backend_journal::{BackendJournal, StartupVerification};
+    /// use merkle_tree_bulletin_board::{DatabaseTransaction, BulletinBoardBackend};
+    /// use merkle_tree_bulletin_board::hash_history::{LeafHashHistory, HashSource};
+    /// use merkle_tree_bulletin_board::backend_memory::BackendMemory;
+    /// let dir = tempdir::TempDir::new("journal").unwrap();
+    /// let mut  journal = BackendJournal::new(BackendMemory::default(),dir.path(),StartupVerification::SanityCheckAndRepairPending).unwrap();
+    /// let history = LeafHashHistory{timestamp: 42 ,data: "The answer".to_string() };
+    /// let hash = history.compute_hash();
+    /// journal.publish(&DatabaseTransaction{pending:vec![(hash,HashSource::Leaf(history))]});
+    /// assert_eq!("0,68c3cefbe5b64fc51713cabe524cd35f2be6e52148a0f201476f16f378cb1aee,42,The answer\n\n",std::fs::read_to_string(dir.path().join("pending.csv")).unwrap());
+    /// // Now create a new journalling backend with the old data and check it is OK.
+    /// let journal = BackendJournal::new(journal.into_inner(),dir.path(),StartupVerification::SanityCheckPending).unwrap();
+    /// // Now delete the journal, and restart with the sanity-check-and-repair
+    /// std::fs::remove_file(dir.path().join("pending.csv"));
+    /// let journal = BackendJournal::new(journal.into_inner(),dir.path(),StartupVerification::SanityCheckAndRepairPending).unwrap();
+    /// // it should have automatically recreated the journal for us.
+    /// assert_eq!("0,68c3cefbe5b64fc51713cabe524cd35f2be6e52148a0f201476f16f378cb1aee,42,The answer\n\n",std::fs::read_to_string(dir.path().join("pending.csv")).unwrap());
+    /// // Now delete, and do sanity check, but don't recreate. Should produce an error.
+    /// std::fs::remove_file(dir.path().join("pending.csv"));
+    /// assert!(BackendJournal::new(journal.into_inner(),dir.path(),StartupVerification::SanityCheckPending).is_err());
+    /// ```
+    pub fn new<P>(main_backend:B,directory: P,verification:StartupVerification) -> anyhow::Result<Self>
     where PathBuf: From<P>
     {
         let directory = PathBuf::from(directory);
         std::fs::create_dir_all(&directory)?;
-        let res = BackendJournal{ main_journal, directory };
-        match res.verify_current_consistent() {
-            Ok(()) => {}
-            Err(e) if recreate_current_if_corrupt => {
-                println!("The pending journal is corrupt. Attempting to recreate. Error was {}",e);
-                let should_be = crate::deduce_journal::deduce_journal_last_published_root_to_present(&res)?;
-                let recreate_name = res.rel_path("recreating.csv");
-                { // make the file in a different name to prevent clobbering something of possible diagnostic use if all is stuffed up to badly to recover.
-                    let file = File::create(&recreate_name)?;
-                    for transaction in should_be {
-                        write_transaction_to_csv(&transaction,&file)?;
+        let res = BackendJournal{ main_backend, directory };
+        match verification {
+            StartupVerification::None => {}
+            StartupVerification::SanityCheckPending => { res.verify_current_consistent()? }
+            StartupVerification::SanityCheckAndRepairPending => {
+                match res.verify_current_consistent() {
+                    Ok(()) => {}
+                    Err(e) => {
+                        println!("The pending journal is corrupt. Attempting to recreate. Error was {}",e);
+                        res.recreate(res.pending_path(),crate::deduce_journal::deduce_journal_last_published_root_to_present(&res)?)?;
+                        res.verify_current_consistent()?; // check again, just to be sure.
                     }
-                    file.sync_data()?;
                 }
-                std::fs::rename(recreate_name,res.pending_path())?;
-                println!("Successfully recreated pending journal. Continuing.")
             }
-            Err(e) => return Err(e)
+            StartupVerification::RebuildAllJournals => {
+                for root in res.get_all_published_roots()?.into_iter().rev() {
+                    res.recreate(res.hash_path(root),crate::deduce_journal::deduce_journal_from_prior_root_to_given_root(&res,root)?)?;
+                }
+                res.recreate(res.pending_path(),crate::deduce_journal::deduce_journal_last_published_root_to_present(&res)?)?;
+                res.verify_current_consistent()?; // check again, just to be sure.
+            }
         }
         Ok(res)
     }
 }
 
+/// When the journal starts up, it can do a sanity check to see if the journal is consistent with
+/// the database. This is useful for recovering from power outages in the middle of disk writes, etc.
+/// This enum gives options about what should be checked, and what should be done about it.
+pub enum StartupVerification {
+    /// Don't do any verification
+    None,
+    /// Check the sanity of the pending.csv file which may easily get truncated or corrupted if there is not a graceful shutdown. Uses [BackendJournal::verify_current_consistent].
+    SanityCheckPending,
+    /// Check the sanity of the pending.csv file like SanityCheckPending, and regenerate it automatically if needed using [deduce_journal::deduce_journal_last_published_root_to_present]. This is probably the most useful in production.
+    SanityCheckAndRepairPending,
+    /// Something has gone badly wrong. Regenerate all journal files from the database. This may take some time...
+    RebuildAllJournals,
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::backend_journal::{BackendJournal, StartupVerification};
+    use crate::backend_memory::BackendMemory;
+    use crate::BulletinBoard;
+
+    #[test]
+    /// Test StartupVerification::RebuildAllJournals
+    fn test_rebuild_all_journals() {
+        let dir = tempdir::TempDir::new("journal").unwrap();
+        let journal = BackendJournal::new(BackendMemory::default(),dir.path(),StartupVerification::SanityCheckAndRepairPending).unwrap();
+        let mut board = BulletinBoard::new(journal).unwrap();
+        board.submit_leaf("a").unwrap();
+        let pending_file = dir.path().join("pending.csv");
+        assert_eq!(true,pending_file.exists());
+        let hash1 = board.order_new_published_root().unwrap();
+        let root_file1 = dir.path().join(&(hash1.to_string()+".csv"));
+        assert_eq!(false,pending_file.exists());
+        assert_eq!(true,root_file1.exists());
+        board.submit_leaf("b").unwrap();
+        assert_eq!(true,pending_file.exists());
+        let hash2 = board.order_new_published_root().unwrap();
+        let root_file2 = dir.path().join(&(hash2.to_string()+".csv"));
+        assert_eq!(false,pending_file.exists());
+        assert_eq!(true,root_file2.exists());
+        board.submit_leaf("c").unwrap();
+        assert_eq!(true,pending_file.exists());
+        let data_root1 =  std::fs::read_to_string(&root_file1).unwrap();
+        let data_root2 =  std::fs::read_to_string(&root_file2).unwrap();
+        let data_pending =  std::fs::read_to_string(&pending_file).unwrap();
+        std::fs::remove_file(&root_file1).unwrap();
+        std::fs::remove_file(&root_file2).unwrap();
+        std::fs::remove_file(&pending_file).unwrap();
+        // recreate
+        let _journal = BackendJournal::new(board.backend.into_inner(),dir.path(),StartupVerification::RebuildAllJournals).unwrap();
+        assert_eq!(data_root1,std::fs::read_to_string(&root_file1).unwrap());
+        assert_eq!(data_root2,std::fs::read_to_string(&root_file2).unwrap());
+        assert_eq!(data_pending,std::fs::read_to_string(&pending_file).unwrap());
+    }
+}
