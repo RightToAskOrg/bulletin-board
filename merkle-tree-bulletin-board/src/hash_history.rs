@@ -132,6 +132,8 @@ pub struct HashInfoWithHash {
 /// A proof structure that a given hash value is included.
 /// It is a chain from the desired hash value back to the most recently published root, should it be present.
 /// If the hash has been generated after the most recently published root, it will not of course be traceable back to it.
+///
+/// See [verifier::verify_proof] for how to verify the proof.
 #[derive(Debug,Clone,Serialize,Deserialize)]
 pub struct FullProof {
     /// chain back to the start. Each element is the parent of the prior element.

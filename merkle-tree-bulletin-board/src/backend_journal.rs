@@ -29,6 +29,7 @@ use std::iter::FromIterator;
 ///     - Get the file *S*.csv which contains all transactions between *R* and *S* (assuming *R* is the root before *S*)
 ///     - Play said file, checking all the hashings it implies, and whatever else you want to check about the content (content specific).
 ///     - Compare the resulting nodes to [BulletinBoard::get_hash_info] applied to *S* and check its hash.
+///     This is implemented in [verifier::bulk_verify_between_two_published_elements].
 ///   - The complete list of current actions between now and the last published root *R*. There
 ///     is not much point in doing this for security purposes, since different people could
 ///     be given current states by a malicious adversary. However it is worth doing from a file
@@ -172,7 +173,7 @@ impl <B:BulletinBoardBackend> BackendJournal<B> {
     /// use merkle_tree_bulletin_board::backend_journal::{BackendJournal, StartupVerification};
     /// use merkle_tree_bulletin_board::backend_memory::BackendMemory;
     /// use merkle_tree_bulletin_board::BulletinBoard;
-    /// let mut  dir = tempdir::TempDir::new("journal").unwrap();
+    /// let dir = tempdir::TempDir::new("journal").unwrap();
     /// let journal = BackendJournal::new(BackendMemory::default(),dir.path(),StartupVerification::SanityCheckAndRepairPending).unwrap();
     /// let mut board = BulletinBoard::new(journal).unwrap();
     /// board.submit_leaf("a").unwrap();

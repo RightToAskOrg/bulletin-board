@@ -69,6 +69,8 @@ impl BackendFlatfile {
 ///
 /// To read in transactions from a file, into an iterator, see [TransactionIterator::new]
 ///
+/// All character encoding is UTF-8.
+///
 /// # Examples
 ///
 /// ```

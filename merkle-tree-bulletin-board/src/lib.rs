@@ -40,6 +40,7 @@ pub mod backend_memory;
 pub mod backend_flatfile;
 pub mod backend_journal;
 pub mod deduce_journal;
+pub mod verifier;
 
 use crate::growing_forest::GrowingForest;
 use crate::hash::HashValue;
@@ -427,10 +428,13 @@ impl <B:BulletinBoardBackend> BulletinBoard<B> {
     /// This could easily be done via multiple calls
     /// to the other APIs, and indeed that is how this is implemented.
     ///
+    /// See [verifier::verify_proof] for how to verify the proof.
+    ///
     /// # Example
     ///
     /// ```
     /// use merkle_tree_bulletin_board::hash_history::{HashSource, BranchHashHistory};
+    /// use merkle_tree_bulletin_board::verifier::verify_proof;
     ///
     /// let mut board = merkle_tree_bulletin_board::BulletinBoard::new(merkle_tree_bulletin_board::backend_memory::BackendMemory::default()).unwrap();
     /// let hash_a = board.submit_leaf("a").unwrap();
@@ -439,7 +443,7 @@ impl <B:BulletinBoardBackend> BulletinBoard<B> {
     /// let root = board.order_new_published_root().unwrap();
     /// let proof = board.get_proof_chain(hash_a).unwrap(); // get the inclusion proof for "a".
     /// assert_eq!(proof.published_root.clone().unwrap().hash,root); // the root, which consists of the branch
-    /// match proof.published_root.unwrap().source {
+    /// match &proof.published_root.as_ref().unwrap().source {
     ///     HashSource::Root(history) => assert_eq!(history.elements,vec![branch]),
     ///     _ => panic!("Not root")
     /// }
@@ -447,6 +451,7 @@ impl <B:BulletinBoardBackend> BulletinBoard<B> {
     /// assert_eq!(proof.chain[0].hash,hash_a);  // the leaf we asked for
     /// assert_eq!(proof.chain[1].hash,branch);  // the parent of the leaf we asked for, which is in the published root.
     /// assert_eq!(proof.chain[1].source,HashSource::Branch(BranchHashHistory{left: hash_a,right: hash_b}));
+    /// assert_eq!(verify_proof("a",root,&proof),None); // A thorough check.
     /// ```
    pub fn get_proof_chain(&self,query:HashValue) -> anyhow::Result<FullProof> {
         let mut chain = vec![];
