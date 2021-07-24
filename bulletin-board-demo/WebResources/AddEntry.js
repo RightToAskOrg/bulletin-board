@@ -20,7 +20,7 @@ function updatePending() {
         if (data.Ok) for (const line of data.Ok) addLink(add(div,"div"),line);
         else if (data.Err) div.innerText="Error : "+data.Err;
     }
-    getWebJSON("get_pending_hash_values",success,failure);
+    getWebJSON("get_parentless_unpublished_hash_values",success,failure);
 }
 
 function updatePublishedHead() {

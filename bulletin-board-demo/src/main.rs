@@ -25,9 +25,9 @@ async fn submit_leaf(command : web::Json<Publish>, datasource: web::Data<Mutex<O
     Json(datasource.lock().await.submit_leaf(&command.data).map_err(|e|e.to_string()))
 }
 
-#[get("/get_pending_hash_values")]
-async fn get_pending_hash_values(datasource: web::Data<Mutex<OurBulletinBoard>>) -> Json<Result<Vec<HashValue>,String>> {
-    Json(datasource.lock().await.get_pending_hash_values().map_err(|e|e.to_string()))
+#[get("/get_parentless_unpublished_hash_values")]
+async fn get_parentless_unpublished_hash_values(datasource: web::Data<Mutex<OurBulletinBoard>>) -> Json<Result<Vec<HashValue>,String>> {
+    Json(datasource.lock().await.get_parentless_unpublished_hash_values().map_err(|e|e.to_string()))
 }
 
 #[get("/get_most_recent_published_root")]
@@ -87,7 +87,7 @@ async fn main() -> anyhow::Result<()> {
             .app_data(datasource.clone())
             .wrap(middleware::Compress::default())
             .service(submit_leaf)
-            .service(get_pending_hash_values)
+            .service(get_parentless_unpublished_hash_values)
             .service(get_most_recent_published_root)
             .service(order_new_published_root)
             .service(get_hash_info)

@@ -76,20 +76,23 @@ impl BackendFlatfile {
 /// ```
 /// use merkle_tree_bulletin_board::DatabaseTransaction;
 /// use merkle_tree_bulletin_board::hash_history::LeafHashHistory;
+/// use merkle_tree_bulletin_board::backend_flatfile::write_transaction_to_csv;
 /// let mut output : Vec<u8> = vec![];
 /// let mut transaction : DatabaseTransaction = DatabaseTransaction::default();
 /// let history = LeafHashHistory{timestamp: 42 ,data: "The answer".to_string() };
 /// let hash = history.compute_hash();
 /// assert_eq!(hash.to_string(),"68c3cefbe5b64fc51713cabe524cd35f2be6e52148a0f201476f16f378cb1aee");
 /// transaction.add_leaf_hash(hash,history);
-/// merkle_tree_bulletin_board::backend_flatfile::write_transaction_to_csv(&transaction,&mut output).unwrap();
-/// assert_eq!(String::from_utf8(output).unwrap(),"0,68c3cefbe5b64fc51713cabe524cd35f2be6e52148a0f201476f16f378cb1aee,42,The answer\n\n");
+/// write_transaction_to_csv(&transaction,&mut output).unwrap();
+/// assert_eq!(String::from_utf8(output).unwrap(),
+/// "0,68c3cefbe5b64fc51713cabe524cd35f2be6e52148a0f201476f16f378cb1aee,42,The answer\n\n");
 /// ```
 ///
 /// The following more complex example shows multiple entries, and CSV sensitive characters "" and ,
 /// ```
 /// use merkle_tree_bulletin_board::DatabaseTransaction;
 /// use merkle_tree_bulletin_board::hash_history::LeafHashHistory;
+/// use merkle_tree_bulletin_board::backend_flatfile::write_transaction_to_csv;
 /// let mut output : Vec<u8> = vec![];
 /// let mut transaction : DatabaseTransaction = DatabaseTransaction::default();
 /// let history = LeafHashHistory{timestamp: 42 ,data: "The answer".to_string() };
@@ -101,8 +104,9 @@ impl BackendFlatfile {
 /// let hash = history.compute_hash();
 /// assert_eq!(hash.to_string(),"1d1633c405293e54ac8434c34dfa2532d59172979d1dc38a6389485b35f51762");
 /// transaction.add_leaf_hash(hash,history);
-/// merkle_tree_bulletin_board::backend_flatfile::write_transaction_to_csv(&transaction,&mut output).unwrap();
-/// assert_eq!(String::from_utf8(output).unwrap(),r#"0,68c3cefbe5b64fc51713cabe524cd35f2be6e52148a0f201476f16f378cb1aee,42,The answer
+/// write_transaction_to_csv(&transaction,&mut output).unwrap();
+/// assert_eq!(String::from_utf8(output).unwrap(),
+/// r#"0,68c3cefbe5b64fc51713cabe524cd35f2be6e52148a0f201476f16f378cb1aee,42,The answer
 /// 0,1d1633c405293e54ac8434c34dfa2532d59172979d1dc38a6389485b35f51762,43,"The new improved, ""web 2.0"" answer
 /// with a newline in the middle"
 ///

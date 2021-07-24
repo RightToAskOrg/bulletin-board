@@ -29,7 +29,7 @@ use std::iter::FromIterator;
 ///     - Get the file *S*.csv which contains all transactions between *R* and *S* (assuming *R* is the root before *S*)
 ///     - Play said file, checking all the hashings it implies, and whatever else you want to check about the content (content specific).
 ///     - Compare the resulting nodes to [crate::BulletinBoard::get_hash_info] applied to *S* and check its hash.
-///     This is implemented in [crate::verifier::bulk_verify_between_two_published_elements].
+///     This is implemented in [crate::verifier::bulk_verify_between_two_consecutive_published_roots].
 ///   - The complete list of current actions between now and the last published root *R*. There
 ///     is not much point in doing this for security purposes, since different people could
 ///     be given current states by a malicious adversary. However it is worth doing from a file
@@ -39,7 +39,7 @@ use std::iter::FromIterator;
 ///     - Get information on root *R* as above.
 ///     - Get the file current.csv, as above. If the file does not exist, treat it as empty.
 ///     - Play said file, as above.
-///     - Compare the resulting nodes to [crate::BulletinBoard::get_pending_hash_values], remembering that
+///     - Compare the resulting nodes to [crate::BulletinBoard::get_parentless_unpublished_hash_values], remembering that
 ///       that does not include nodes that were in *R*.
 ///   - The entire transcript from the beginning of time.
 ///     - Get a list of published roots via [crate::BulletinBoard::get_all_published_roots]
@@ -174,15 +174,16 @@ impl <B:BulletinBoardBackend> BackendJournal<B> {
     /// use merkle_tree_bulletin_board::backend_memory::BackendMemory;
     /// use merkle_tree_bulletin_board::BulletinBoard;
     /// let dir = tempdir::TempDir::new("journal").unwrap();
-    /// let journal = BackendJournal::new(BackendMemory::default(),dir.path(),StartupVerification::SanityCheckAndRepairPending).unwrap();
+    /// let journal = BackendJournal::new(BackendMemory::default(),dir.path(),
+    ///     StartupVerification::SanityCheckAndRepairPending).unwrap();
     /// let mut board = BulletinBoard::new(journal).unwrap();
     /// board.submit_leaf("a").unwrap();
-    /// assert_eq!(true,dir.path().join("pending.csv").exists(),"created pending file with leaf a");
+    /// assert_eq!(true,dir.path().join("pending.csv").exists());
     /// let hash = board.order_new_published_root().unwrap();
-    /// assert_eq!(false,dir.path().join("pending.csv").exists(),"nothing pending");
-    /// assert_eq!(true,dir.path().join(&(hash.to_string()+".csv")).exists(),"A new root published");
+    /// assert_eq!(false,dir.path().join("pending.csv").exists());
+    /// assert_eq!(true,dir.path().join(&(hash.to_string()+".csv")).exists());
     /// board.submit_leaf("b").unwrap();
-    /// assert_eq!(true,dir.path().join("pending.csv").exists(),"new pending file created containing b and branch ab");
+    /// assert_eq!(true,dir.path().join("pending.csv").exists());
     /// ```
     ///
     /// Showing startup verification
@@ -193,21 +194,31 @@ impl <B:BulletinBoardBackend> BackendJournal<B> {
     /// use merkle_tree_bulletin_board::hash_history::{LeafHashHistory, HashSource};
     /// use merkle_tree_bulletin_board::backend_memory::BackendMemory;
     /// let dir = tempdir::TempDir::new("journal").unwrap();
-    /// let mut  journal = BackendJournal::new(BackendMemory::default(),dir.path(),StartupVerification::SanityCheckAndRepairPending).unwrap();
+    /// let mut  journal = BackendJournal::new(BackendMemory::default(),dir.path(),
+    ///     StartupVerification::SanityCheckAndRepairPending).unwrap();
     /// let history = LeafHashHistory{timestamp: 42 ,data: "The answer".to_string() };
     /// let hash = history.compute_hash();
     /// journal.publish(&DatabaseTransaction{pending:vec![(hash,HashSource::Leaf(history))]});
-    /// assert_eq!("0,68c3cefbe5b64fc51713cabe524cd35f2be6e52148a0f201476f16f378cb1aee,42,The answer\n\n",std::fs::read_to_string(dir.path().join("pending.csv")).unwrap());
+    /// assert_eq!(
+    ///     "0,68c3cefbe5b64fc51713cabe524cd35f2be6e52148a0f201476f16f378cb1aee,42,The answer\n\n",
+    ///     std::fs::read_to_string(dir.path().join("pending.csv")).unwrap()
+    /// );
     /// // Now create a new journalling backend with the old data and check it is OK.
-    /// let journal = BackendJournal::new(journal.into_inner(),dir.path(),StartupVerification::SanityCheckPending).unwrap();
+    /// let journal = BackendJournal::new(journal.into_inner(),dir.path(),
+    ///     StartupVerification::SanityCheckPending).unwrap();
     /// // Now delete the journal, and restart with the sanity-check-and-repair
     /// std::fs::remove_file(dir.path().join("pending.csv"));
-    /// let journal = BackendJournal::new(journal.into_inner(),dir.path(),StartupVerification::SanityCheckAndRepairPending).unwrap();
+    /// let journal = BackendJournal::new(journal.into_inner(),dir.path(),
+    ///     StartupVerification::SanityCheckAndRepairPending).unwrap();
     /// // it should have automatically recreated the journal for us.
-    /// assert_eq!("0,68c3cefbe5b64fc51713cabe524cd35f2be6e52148a0f201476f16f378cb1aee,42,The answer\n\n",std::fs::read_to_string(dir.path().join("pending.csv")).unwrap());
+    /// assert_eq!(
+    ///     "0,68c3cefbe5b64fc51713cabe524cd35f2be6e52148a0f201476f16f378cb1aee,42,The answer\n\n",
+    ///     std::fs::read_to_string(dir.path().join("pending.csv")).unwrap()
+    /// );
     /// // Now delete, and do sanity check, but don't recreate. Should produce an error.
     /// std::fs::remove_file(dir.path().join("pending.csv"));
-    /// assert!(BackendJournal::new(journal.into_inner(),dir.path(),StartupVerification::SanityCheckPending).is_err());
+    /// assert!(BackendJournal::new(journal.into_inner(),dir.path(),
+    ///     StartupVerification::SanityCheckPending).is_err());
     /// ```
     pub fn new<P>(main_backend:B,directory: P,verification:StartupVerification) -> anyhow::Result<Self>
     where PathBuf: From<P>

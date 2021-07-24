@@ -99,14 +99,16 @@ use std::time::Duration;
 /// }
 /// assert_eq!(board.get_all_published_roots().unwrap(),vec![]);
 /// assert_eq!(board.get_most_recent_published_root().unwrap(),None);
-/// assert_eq!(board.get_pending_hash_values().unwrap(),vec![]);
+/// assert_eq!(board.get_parentless_unpublished_hash_values().unwrap(),vec![]);
+///
 /// #[allow(non_snake_case)]
 /// let hash_A : HashValue = board.submit_leaf("A").unwrap();
 /// // we have inserted A, which is a single tree but nothing is published.
 /// assert_eq!(board.get_hash_info(hash_A).unwrap().parent,None);
 /// assert_is_leaf(board.get_hash_info(hash_A).unwrap().source,"A");
 /// assert_eq!(board.get_all_published_roots().unwrap(),vec![]);
-/// assert_eq!(board.get_pending_hash_values().unwrap(),vec![hash_A]);
+/// assert_eq!(board.get_parentless_unpublished_hash_values().unwrap(),vec![hash_A]);
+///
 /// #[allow(non_snake_case)]
 /// let hash_B : HashValue = board.submit_leaf("B").unwrap();
 /// // we have now inserted B, which will be merged into a tree with A on the left and B on the right.
@@ -115,26 +117,33 @@ use std::time::Duration;
 /// assert_eq!(board.get_hash_info(hash_B).unwrap().parent,Some(branch_AB));
 /// assert_is_leaf(board.get_hash_info(hash_B).unwrap().source,"B");
 /// assert_eq!(board.get_all_published_roots().unwrap(),vec![]);
-/// assert_eq!(board.get_pending_hash_values().unwrap(),vec![branch_AB]);
-/// assert_eq!(board.get_hash_info(branch_AB).unwrap(),HashInfo{source: HashSource::Branch(BranchHashHistory{left:hash_A,right:hash_B}) ,parent: None});
+/// assert_eq!(board.get_parentless_unpublished_hash_values().unwrap(),vec![branch_AB]);
+/// assert_eq!(board.get_hash_info(branch_AB).unwrap(), HashInfo{
+///    source: HashSource::Branch(BranchHashHistory{left:hash_A,right:hash_B}) ,parent: None});
+///
 /// #[allow(non_snake_case)]
 /// let hash_C : HashValue = board.submit_leaf("C").unwrap();
-/// // we have now inserted C, which will not be merged with branchAB as they are different depths and that would lead to an unbalanced tree.
+/// // we have now inserted C, which will not be merged with branchAB
+/// // as they are different depths and that would lead to an unbalanced tree.
 /// assert_eq!(board.get_hash_info(hash_C).unwrap().parent,None);
 /// assert_is_leaf(board.get_hash_info(hash_C).unwrap().source,"C");
 /// assert_eq!(board.get_all_published_roots().unwrap(),vec![]);
-/// assert_eq!(board.get_pending_hash_values().unwrap(),vec![branch_AB,hash_C]);
+/// assert_eq!(board.get_parentless_unpublished_hash_values().unwrap(),vec![branch_AB,hash_C]);
+///
 /// // now publish! This will publish branch_AB and hash_C.
 /// let published1 : HashValue = board.order_new_published_root().unwrap();
 /// match board.get_hash_info(published1).unwrap().source {
-///     HashSource::Root(RootHashHistory{timestamp:_,elements:e,prior:None}) => assert_eq!(e,vec![branch_AB,hash_C]),
+///     HashSource::Root(RootHashHistory{timestamp:_,elements:e,prior:None}) =>
+///        assert_eq!(e,vec![branch_AB,hash_C]),
 ///     _ => panic!("Should be a root"),
 /// }
 /// assert_eq!(board.get_all_published_roots().unwrap(),vec![published1]);
 /// assert_eq!(board.get_most_recent_published_root().unwrap(),Some(published1));
-/// assert_eq!(board.get_pending_hash_values().unwrap(),vec![]); // branch_AB,hash_C are still "pending" and can be merged with, but are no longer unpublished.
-/// // If another publication were done now, and the timestamp hadn't happened to change, board.order_new_published_root() would probably return an error as there is no new information or time stamp, and it is probably a bug we did two almost simultaneous publications.
-/// // add another element D, which will merge with C, making branch_CD, which will then merge with AB making a single tree ABCD.
+/// assert_eq!(board.get_parentless_unpublished_hash_values().unwrap(),vec![]);
+/// // branch_AB,hash_C are still parentless and can be merged with, but are no longer unpublished.
+///
+/// // add another element D, which will merge with C, making branch_CD,
+/// // which will then merge with AB making a single tree ABCD.
 /// #[allow(non_snake_case)]
 /// let hash_D : HashValue = board.submit_leaf("D").unwrap();
 /// // we have inserted A, which is a single tree but nothing is published.
@@ -144,11 +153,17 @@ use std::time::Duration;
 /// assert_is_leaf(board.get_hash_info(hash_D).unwrap().source,"D");
 /// #[allow(non_snake_case)]
 /// let branch_ABCD : HashValue = board.get_hash_info(branch_AB).unwrap().parent.unwrap();
-/// assert_eq!(board.get_hash_info(branch_CD).unwrap(),HashInfo{source: HashSource::Branch(BranchHashHistory{left:hash_C,right:hash_D}) ,parent: Some(branch_ABCD)});
-/// assert_eq!(board.get_hash_info(branch_ABCD).unwrap(),HashInfo{source: HashSource::Branch(BranchHashHistory{left:branch_AB,right:branch_CD}) ,parent: None});
+/// assert_eq!(board.get_hash_info(branch_CD).unwrap(),HashInfo{
+///     source: HashSource::Branch(BranchHashHistory{left:hash_C,right:hash_D}) ,
+///     parent: Some(branch_ABCD)});
+/// assert_eq!(board.get_hash_info(branch_ABCD).unwrap(),HashInfo{
+///     source: HashSource::Branch(BranchHashHistory{left:branch_AB,right:branch_CD}) ,
+///     parent: None});
 /// assert_eq!(board.get_all_published_roots().unwrap(),vec![published1]);
-/// assert_eq!(board.get_pending_hash_values().unwrap(),vec![branch_ABCD]);
-/// // do another publication, which now only hash to contain branchABCD which includes everything, including things from before the last publication.
+/// assert_eq!(board.get_parentless_unpublished_hash_values().unwrap(),vec![branch_ABCD]);
+///
+/// // do another publication, which now only has to contain branchABCD which includes everything,
+/// // including things from before the last publication.
 /// let published2 = board.order_new_published_root().unwrap();
 /// match board.get_hash_info(published2).unwrap().source {
 ///     HashSource::Root(RootHashHistory{timestamp:_,elements:e,prior:Some(prior)}) => {
@@ -159,7 +174,8 @@ use std::time::Duration;
 /// }
 /// assert_eq!(board.get_all_published_roots().unwrap(),vec![published1,published2]);
 /// assert_eq!(board.get_most_recent_published_root().unwrap(),Some(published2));
-/// assert_eq!(board.get_pending_hash_values().unwrap(),vec![]); // branch_ABCD is still "pending" and can be merged with, but is no longer unpublished.
+/// assert_eq!(board.get_parentless_unpublished_hash_values().unwrap(),vec![]);
+/// // branch_ABCD is still parentless and can be merged with, but is no longer unpublished.
 /// ```
 ///
 pub struct BulletinBoard<B:BulletinBoardBackend> {
@@ -291,7 +307,8 @@ impl <B:BulletinBoardBackend> BulletinBoard<B> {
     /// # Example
     ///
     /// ```
-    /// let mut board = merkle_tree_bulletin_board::BulletinBoard::new(merkle_tree_bulletin_board::backend_memory::BackendMemory::default()).unwrap();
+    /// let mut board = merkle_tree_bulletin_board::BulletinBoard::new(
+    ///     merkle_tree_bulletin_board::backend_memory::BackendMemory::default()).unwrap();
     /// board.submit_leaf("A").unwrap();
     /// // the board now has one leaf!
     ///```
@@ -318,7 +335,8 @@ impl <B:BulletinBoardBackend> BulletinBoard<B> {
     /// # Example
     ///
     /// ```
-    /// let mut board = merkle_tree_bulletin_board::BulletinBoard::new(merkle_tree_bulletin_board::backend_memory::BackendMemory::default()).unwrap();
+    /// let mut board = merkle_tree_bulletin_board::BulletinBoard::new(
+    ///     merkle_tree_bulletin_board::backend_memory::BackendMemory::default()).unwrap();
     /// assert_eq!(None,board.get_most_recent_published_root().unwrap());
     /// board.submit_leaf("A").unwrap();
     /// let hash1 = board.order_new_published_root().unwrap();
@@ -337,7 +355,8 @@ impl <B:BulletinBoardBackend> BulletinBoard<B> {
     /// # Example
     ///
     /// ```
-    /// let mut board = merkle_tree_bulletin_board::BulletinBoard::new(merkle_tree_bulletin_board::backend_memory::BackendMemory::default()).unwrap();
+    /// let mut board = merkle_tree_bulletin_board::BulletinBoard::new(
+    ///     merkle_tree_bulletin_board::backend_memory::BackendMemory::default()).unwrap();
     /// assert!(board.get_all_published_roots().unwrap().is_empty());
     /// board.submit_leaf("A").unwrap();
     /// let hash1 = board.order_new_published_root().unwrap();
@@ -357,16 +376,18 @@ impl <B:BulletinBoardBackend> BulletinBoard<B> {
     /// # Example
     ///
     /// ```
-    /// let mut board = merkle_tree_bulletin_board::BulletinBoard::new(merkle_tree_bulletin_board::backend_memory::BackendMemory::default()).unwrap();
-    /// assert!(board.get_pending_hash_values().unwrap().is_empty());
+    /// let mut board = merkle_tree_bulletin_board::BulletinBoard::new(
+    ///     merkle_tree_bulletin_board::backend_memory::BackendMemory::default()).unwrap();
+    /// assert!(board.get_parentless_unpublished_hash_values().unwrap().is_empty());
     /// let hash = board.submit_leaf("A").unwrap();
-    /// assert_eq!(vec![hash],board.get_pending_hash_values().unwrap());
+    /// assert_eq!(vec![hash],board.get_parentless_unpublished_hash_values().unwrap());
     /// board.order_new_published_root().unwrap();
-    /// assert!(board.get_pending_hash_values().unwrap().is_empty());
+    /// assert!(board.get_parentless_unpublished_hash_values().unwrap().is_empty());
     /// board.submit_leaf("B").unwrap();
-    /// assert_eq!(1,board.get_pending_hash_values().unwrap().len()); // will be the tree formed from "A" and "B", not "B" itself.
+    /// assert_eq!(1,board.get_parentless_unpublished_hash_values().unwrap().len());
+    ///   // will be the tree formed from "A" and "B", not "B" itself.
     ///```
-    pub fn get_pending_hash_values(&self) -> anyhow::Result<Vec<HashValue>> {
+    pub fn get_parentless_unpublished_hash_values(&self) -> anyhow::Result<Vec<HashValue>> {
         let mut currently_used : Vec<HashValue> = self.forest_or_err()?.get_subtrees();
         if let Some(published_root) = self.backend.get_most_recent_published_root()? {
             if let Some(HashInfo{source:HashSource::Root(history),..}) = self.backend.get_hash_info(published_root)? {
@@ -408,7 +429,8 @@ impl <B:BulletinBoardBackend> BulletinBoard<B> {
     /// ```
     /// use merkle_tree_bulletin_board::hash_history::{HashSource, LeafHashHistory};
     ///
-    /// let mut board = merkle_tree_bulletin_board::BulletinBoard::new(merkle_tree_bulletin_board::backend_memory::BackendMemory::default()).unwrap();
+    /// let mut board = merkle_tree_bulletin_board::BulletinBoard::new(
+    ///     merkle_tree_bulletin_board::backend_memory::BackendMemory::default()).unwrap();
     /// let hash = board.submit_leaf("A").unwrap();
     /// let info = board.get_hash_info(hash).unwrap();
     /// assert_eq!(info.parent,None);
@@ -436,21 +458,24 @@ impl <B:BulletinBoardBackend> BulletinBoard<B> {
     /// use merkle_tree_bulletin_board::hash_history::{HashSource, BranchHashHistory};
     /// use merkle_tree_bulletin_board::verifier::verify_proof;
     ///
-    /// let mut board = merkle_tree_bulletin_board::BulletinBoard::new(merkle_tree_bulletin_board::backend_memory::BackendMemory::default()).unwrap();
+    /// let mut board = merkle_tree_bulletin_board::BulletinBoard::new(
+    ///     merkle_tree_bulletin_board::backend_memory::BackendMemory::default()).unwrap();
     /// let hash_a = board.submit_leaf("a").unwrap();
     /// let hash_b = board.submit_leaf("b").unwrap(); // made a branch out of a and b
-    /// let branch = board.get_pending_hash_values().unwrap()[0];
+    /// let branch = board.get_parentless_unpublished_hash_values().unwrap()[0];
     /// let root = board.order_new_published_root().unwrap();
     /// let proof = board.get_proof_chain(hash_a).unwrap(); // get the inclusion proof for "a".
-    /// assert_eq!(proof.published_root.clone().unwrap().hash,root); // the root, which consists of the branch
+    /// assert_eq!(proof.published_root.clone().unwrap().hash,root); // the proof is for this root
     /// match &proof.published_root.as_ref().unwrap().source {
     ///     HashSource::Root(history) => assert_eq!(history.elements,vec![branch]),
     ///     _ => panic!("Not root")
     /// }
     /// assert_eq!(proof.chain.len(),2);
     /// assert_eq!(proof.chain[0].hash,hash_a);  // the leaf we asked for
-    /// assert_eq!(proof.chain[1].hash,branch);  // the parent of the leaf we asked for, which is in the published root.
-    /// assert_eq!(proof.chain[1].source,HashSource::Branch(BranchHashHistory{left: hash_a,right: hash_b}));
+    /// assert_eq!(proof.chain[1].hash,branch);  // the parent of the leaf we asked for
+    ///   // the chain does not continue up as chain[1].hash is in the published root.
+    /// assert_eq!(proof.chain[1].source,
+    ///     HashSource::Branch(BranchHashHistory{left: hash_a,right: hash_b}));
     /// assert_eq!(verify_proof("a",root,&proof),None); // A thorough check.
     /// ```
    pub fn get_proof_chain(&self,query:HashValue) -> anyhow::Result<FullProof> {
