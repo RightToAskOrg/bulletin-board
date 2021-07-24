@@ -44,6 +44,8 @@ use std::iter::FromIterator;
 ///   - The entire transcript from the beginning of time.
 ///     - Get a list of published roots via [crate::BulletinBoard::get_all_published_roots]
 ///     - Iterate the above steps for each consecutive pair of roots.
+///
+/// Note that the journal backend does not support censorship efficiently, and rebuilds everything.
 pub struct BackendJournal<B:BulletinBoardBackend> {
     main_backend: B,
     directory : PathBuf,
@@ -84,6 +86,13 @@ impl <B:BulletinBoardBackend> BulletinBoardBackend for BackendJournal<B> {
             }
         }
         Ok(())
+    }
+
+    /// Horrendously inefficient - rebuilds all.
+    fn censor_leaf(&mut self, leaf_to_censor: HashValue) -> anyhow::Result<()> {
+        // Err(anyhow!("BackendJournal does not support censorship! Keep {} free!",leaf_to_censor)) // OK, I could have just prepended leaf_to_censor by an underscore to stop the compiler complaining about leaf_to_censor not being used, and that would have produced slightly smaller code. But...I also could have just returned RTFM which would be shorter still and who would want that?
+        self.main_backend.censor_leaf(leaf_to_censor)?;
+        self.rebuild_all_journals()
     }
 }
 
@@ -196,8 +205,8 @@ impl <B:BulletinBoardBackend> BackendJournal<B> {
     /// let dir = tempdir::TempDir::new("journal").unwrap();
     /// let mut  journal = BackendJournal::new(BackendMemory::default(),dir.path(),
     ///     StartupVerification::SanityCheckAndRepairPending).unwrap();
-    /// let history = LeafHashHistory{timestamp: 42 ,data: "The answer".to_string() };
-    /// let hash = history.compute_hash();
+    /// let history = LeafHashHistory{timestamp: 42 ,data: Some("The answer".to_string()) };
+    /// let hash = history.compute_hash().unwrap();
     /// journal.publish(&DatabaseTransaction{pending:vec![(hash,HashSource::Leaf(history))]});
     /// assert_eq!(
     ///     "0,68c3cefbe5b64fc51713cabe524cd35f2be6e52148a0f201476f16f378cb1aee,42,The answer\n\n",
@@ -240,14 +249,19 @@ impl <B:BulletinBoardBackend> BackendJournal<B> {
                 }
             }
             StartupVerification::RebuildAllJournals => {
-                for root in res.get_all_published_roots()?.into_iter().rev() {
-                    res.recreate(res.hash_path(root),crate::deduce_journal::deduce_journal_from_prior_root_to_given_root(&res,root)?)?;
-                }
-                res.recreate(res.pending_path(),crate::deduce_journal::deduce_journal_last_published_root_to_present(&res)?)?;
-                res.verify_current_consistent()?; // check again, just to be sure.
+                res.rebuild_all_journals()?;
             }
         }
         Ok(res)
+    }
+
+    fn rebuild_all_journals(&self) -> anyhow::Result<()> {
+        for root in self.get_all_published_roots()?.into_iter().rev() {
+            self.recreate(self.hash_path(root),crate::deduce_journal::deduce_journal_from_prior_root_to_given_root(self,root)?)?;
+        }
+        self.recreate(self.pending_path(),crate::deduce_journal::deduce_journal_last_published_root_to_present(self)?)?;
+        self.verify_current_consistent()?; // check again, just to be sure.
+        Ok(())
     }
 }
 

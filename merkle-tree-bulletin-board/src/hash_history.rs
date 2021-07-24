@@ -11,21 +11,27 @@ pub fn timestamp_now() -> Result<Timestamp,SystemTimeError> { Ok(SystemTime::now
 
 /// Where a leaf comes from
 /// Hash = sha256(0|timestamp(bigendian 64 bits)|data)
+/// If the data is None it means it has been censored post incorporation into the tree,
+/// and therefore it is no longer possible to compute the hash.
 #[derive(Debug,Clone,Serialize,Deserialize,Eq,PartialEq)]
 pub struct LeafHashHistory {
     /// when the leaf was received
     pub timestamp : Timestamp,
-    /// the data that went into the leaf;
-    pub data : String,
+    /// the data that went into the leaf; If None then it has been censored.
+    pub data : Option<String>,
 }
 
 impl LeafHashHistory {
-    pub fn compute_hash(&self) -> HashValue {
-        let mut hasher = Sha256::default();
-        hasher.update(&[0]);
-        hasher.update(self.timestamp.to_be_bytes());
-        hasher.update(self.data.as_bytes());
-        HashValue(<[u8; 32]>::from(hasher.finalize()))
+    /// Hash = sha256(0|timestamp(bigendian 64 bits)|data)
+    /// Returns None if the data has been censored.
+    pub fn compute_hash(&self) -> Option<HashValue> {
+        if let Some(data) = &self.data {
+            let mut hasher = Sha256::default();
+            hasher.update(&[0]);
+            hasher.update(self.timestamp.to_be_bytes());
+            hasher.update(data.as_bytes());
+            Some(HashValue(<[u8; 32]>::from(hasher.finalize())))
+        } else { None }
     }
 }
 
@@ -90,17 +96,7 @@ pub enum HashSource {
     Branch(BranchHashHistory),
     Root(RootHashHistory),
 }
-/*
-impl HashSource {
-    pub fn timestamp(&self) -> Timestamp {
-        match self {
-            HashSource::Leaf(history) => history.timestamp,
-            HashSource::Branch(history) => history.timestamp,
-            HashSource::Root(history) => history.timestamp,
-        }
-    }
-}
-*/
+
 /// Full information on a hash, where it has come from and its parent, if any.
 #[derive(Debug,Clone,Serialize,Deserialize,PartialEq,Eq)]
 pub struct HashInfo {

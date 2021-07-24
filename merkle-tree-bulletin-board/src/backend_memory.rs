@@ -1,14 +1,14 @@
 use std::collections::HashMap;
 use crate::hash::HashValue;
-use crate::hash_history::{HashInfo, HashSource};
+use crate::hash_history::{HashInfo, HashSource, LeafHashHistory};
 use crate::{BulletinBoardBackend, DatabaseTransaction};
 use itertools::Itertools;
+use anyhow::anyhow;
 
 /// Store the contents of the "database" holding what has happened in memory. Useful for tests, but not for production.
 #[derive(Default)]
 pub struct BackendMemory {
     hash_lookup : HashMap<HashValue,HashInfo>,
-    leaf_lookup : HashMap<String,HashValue>,
     published : Vec<HashValue>,
 }
 
@@ -40,7 +40,6 @@ impl BulletinBoardBackend for BackendMemory {
         for (new_hash,source) in &transaction.pending {
             match source {
                 HashSource::Leaf(history) => {
-                    self.leaf_lookup.insert(history.data.clone(),*new_hash);
                     self.hash_lookup.insert(*new_hash,HashInfo{ source: HashSource::Leaf(history.clone()), parent: None });
                 }
                 HashSource::Branch(history) => {
@@ -58,6 +57,20 @@ impl BulletinBoardBackend for BackendMemory {
         Ok(())
     }
 
+    fn censor_leaf(&mut self, leaf_to_censor: HashValue) -> anyhow::Result<()> {
+        match self.hash_lookup.get_mut(&leaf_to_censor) {
+            None => Err(anyhow!("No such key")),
+            Some(info) => {
+                match &info.source {
+                    HashSource::Leaf(LeafHashHistory{timestamp,..}) => {
+                        info.source=HashSource::Leaf(LeafHashHistory{timestamp:*timestamp,data:None});
+                        Ok(())
+                    }
+                    _ => Err(anyhow!("Can only censor leaves")),
+                }
+            }
+        }
+    }
 }
 
 impl BackendMemory {

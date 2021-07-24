@@ -20,10 +20,21 @@ struct Publish {
     data : String,
 }
 
+#[derive(serde::Deserialize)]
+struct Censor {
+    leaf_to_censor : HashValue,
+}
+
 #[post("/submit_leaf")]
 async fn submit_leaf(command : web::Json<Publish>, datasource: web::Data<Mutex<OurBulletinBoard>>) -> Json<Result<HashValue,String>> {
     Json(datasource.lock().await.submit_leaf(&command.data).map_err(|e|e.to_string()))
 }
+
+#[post("/censor_leaf")]
+async fn censor_leaf(command : web::Json<Censor>, datasource: web::Data<Mutex<OurBulletinBoard>>) -> Json<Result<(),String>> {
+    Json(datasource.lock().await.censor_leaf(command.leaf_to_censor).map_err(|e|e.to_string()))
+}
+
 
 #[get("/get_parentless_unpublished_hash_values")]
 async fn get_parentless_unpublished_hash_values(datasource: web::Data<Mutex<OurBulletinBoard>>) -> Json<Result<Vec<HashValue>,String>> {
@@ -87,6 +98,7 @@ async fn main() -> anyhow::Result<()> {
             .app_data(datasource.clone())
             .wrap(middleware::Compress::default())
             .service(submit_leaf)
+            .service(censor_leaf)
             .service(get_parentless_unpublished_hash_values)
             .service(get_most_recent_published_root)
             .service(order_new_published_root)

@@ -11,7 +11,7 @@ function addTimestamp(where,timestamp) {
 /**
  * Make a div explaining where the hash for some explained hash has come from
  * @param where{HTMLElement} Where the text should go.
- * @param source{{Leaf:{timestamp:number,data:string},Branch:{left:string,right:string},Root:{timestamp:number,prior:string?,elements:[string]}}}
+ * @param source{{Leaf:{timestamp:number,data:string?},Branch:{left:string,right:string},Root:{timestamp:number,prior:string?,elements:[string]}}}
  * @param expecting{?string} Optional hash that we are expecting.
  * @param lookingFor{?string} Optional hash that should be included in this explanation and which we want to highlight.
  * @returns {Promise<{computedHashLocation:HTMLElement,foundLookingFor:HTMLElement}>} The HTML element containing the computed hash, and the element we were looking for. Or null if not found.
@@ -45,10 +45,20 @@ async function explainHowHashWasComputed(where,source,expecting,lookingFor) {
         linuxCommand = "echo -n "+hexStrBuildup+' | xxd -r -p | cat - <(echo -n "'+contents+'")';
         hexStrBuildup = "";
     }
+    let censored = false;
     if (source.Leaf) {
         hashHex("Leaf prefix",0,1);
         hashHex("Timestamp",source.Leaf.timestamp,8);
-        hashString("Posted Data",source.Leaf.data);
+        if (source.Leaf.hasOwnProperty("data") && source.Leaf.data!==null) {
+            hashString("Posted Data",source.Leaf.data);
+        } else {
+            censored=true;
+            const tr = add(table,"tr");
+            add(tr,"td").innerText="Posted Data";
+            const td = add(tr,"td");
+            const contentsSpan = add(td,"span","Censored");
+            contentsSpan.innerText="CENSORED";
+        }
     } else if (source.Branch) {
         hashHex("Branch prefix",1,1);
         hashHex("Left hash",source.Branch.left,32);
@@ -61,22 +71,30 @@ async function explainHowHashWasComputed(where,source,expecting,lookingFor) {
         for (const element of source.Root.elements) hashHex("Element",element,32);
     }
     // hash it.
-    const hashBuffer = await crypto.subtle.digest('SHA-256', Uint8Array.from(bytesToHash));           // hash the message
-    const hashArray = Array.from(new Uint8Array(hashBuffer));                     // convert buffer to byte array
-    const computedHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join(''); // convert bytes to hex string
-    const computedHashDiv = add(where,"div");
-    add(computedHashDiv,"span").innerText="The Sha256 hash of the above elements concatenated is ";
-    const computedHashLocation = add(computedHashDiv,"span","PartOfChain");
-    computedHashLocation.innerText=computedHash;
-    if (expecting && expecting!==computedHash) {
-        add(where,"b").innerText="THIS IS NOT WHAT IS EXPECTED. Something is going badly wrong";
+    if (censored) {
+        const apology = add(where,"div");
+        add(apology,"span").innerText="Can't compute hash as data is censored. We just have to accept the given old hash ";
+        const uncomputedHashLocation = add(apology,"span","PartOfChain");
+        uncomputedHashLocation.innerText = expecting;
+        return { computedHashLocation:uncomputedHashLocation,foundLookingFor:foundLookingFor};
+    } else {
+        const hashBuffer = await crypto.subtle.digest('SHA-256', Uint8Array.from(bytesToHash));           // hash the message
+        const hashArray = Array.from(new Uint8Array(hashBuffer));                     // convert buffer to byte array
+        const computedHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join(''); // convert bytes to hex string
+        const computedHashDiv = add(where,"div");
+        add(computedHashDiv,"span").innerText="The Sha256 hash of the above elements concatenated is ";
+        const computedHashLocation = add(computedHashDiv,"span","PartOfChain");
+        computedHashLocation.innerText=computedHash;
+        if (expecting && expecting!==computedHash) {
+            add(where,"b").innerText="THIS IS NOT WHAT IS EXPECTED. Something is going badly wrong";
+        }
+        if (hexStrBuildup.length>0) linuxCommand="echo -n "+hexStrBuildup+" | xxd -r -p";
+        linuxCommand+=" | sha256sum";
+        let linuxDiv = add(where,"div");
+        add(linuxDiv,"div").innerText="This can be checked by the Linux command : "
+        add(linuxDiv,"pre").innerText=linuxCommand;
+        return { computedHashLocation:computedHashLocation,foundLookingFor:foundLookingFor};
     }
-    if (hexStrBuildup.length>0) linuxCommand="echo -n "+hexStrBuildup+" | xxd -r -p";
-    linuxCommand+=" | sha256sum";
-    let linuxDiv = add(where,"div");
-    add(linuxDiv,"div").innerText="This can be checked by the Linux command : "
-    add(linuxDiv,"pre").innerText=linuxCommand;
-    return { computedHashLocation:computedHashLocation,foundLookingFor:foundLookingFor};
 }
 
 function getBodyRelativePosition(elem) {
@@ -219,7 +237,11 @@ function describeNode(where,source) {
     if (source.Leaf) {
         add(where, "h5").innerText = "Leaf";
         addTimestamp(where, source.Leaf.timestamp);
-        add(where, "div").innerText = "Data : " + source.Leaf.data;
+        if (source.Leaf.hasOwnProperty("data") && source.Leaf.data!==null) {
+            add(where, "div").innerText = "Data : " + source.Leaf.data;
+        } else {
+            add(where,"div","Censored").innerText = "Data is censored!"
+        }
     }
     if (source.Branch) {
         add(where, "h5").innerText = "Branch";
@@ -251,7 +273,21 @@ window.onload = function () {
             if (result.source) {
                 describeNode(status,result.source);
                 const locations = await explainHowHashWasComputed(status, result.source, hashForThisPage);
+                if (result.source.Leaf&&result.source.Leaf.hasOwnProperty("data")&&result.source.Leaf.data!==null) {
+                    const censorButton = add(status,"button");
+                    censorButton.innerText="Censor!";
+                    censorButton.onclick=function () {
+                        function success(data) {
+                            if (data.Err) { alert(data.Err); }
+                            else {
+                                location.reload(); // the vile text that implied that our glorious leader had messy hair has been rightfully expunged! Long live the not-at-all-unkempt glorious leader!
+                            }
+                        }
+                        function failure(message) { alert(message); }
+                        getWebJSON("censor_leaf",success,failure,JSON.stringify({leaf_to_censor:hashForThisPage}),"application/json")
+                    }
 
+                }
                 if (!result.source.Root) { // add text proof option
                     const textProofDiv = add(status,"div");
                     const textProofButton = add(textProofDiv,"button");

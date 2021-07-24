@@ -4,7 +4,7 @@
 
 
 use crate::hash::HashValue;
-use crate::hash_history::{FullProof, HashSource, HashInfoWithHash};
+use crate::hash_history::{FullProof, HashSource, HashInfoWithHash, LeafHashHistory};
 use std::path::Path;
 use crate::backend_flatfile::TransactionIterator;
 use std::fs::File;
@@ -21,6 +21,13 @@ use std::fs::File;
 ///
 /// Note that this does not just check that data_to_be_proven is part of published_root; it checks that
 /// the provided proof is *actually* a proof of that thing; you can have an invalid proof of a true fact.
+///
+/// Censorship does not stop this check. In particular
+///  * Censoring a leaf that is not the particular leaf you are looking up is totally irrelevant
+///  * Censoring the leaf that you are looking up means that the hash for the leaf is checked against the data_to_be_proven that you provide.
+///    This means that if you were the one censored, you can at least check that your particular node was included, and that the
+///    fact that censorship occurred is recorded, and that your censorship is not conflated with someone else's censorship
+///    which would otherwise allow hiding the number of censored items.
 ///
 /// See [bulk_verify_between_two_consecutive_published_roots] for bulk verification.
 ///
@@ -56,8 +63,13 @@ pub fn verify_proof(data_to_be_proven:&str,published_root:HashValue,proof:&FullP
     if proof.chain.is_empty()  { return Some("No hash chain in the proof".to_string()); }
     match &proof.chain[0].source {
         HashSource::Leaf(history) => {
-            if &history.data!=data_to_be_proven  { return Some("The proof is not for the provided data".to_string()); }
-            if proof.chain[0].hash!=history.compute_hash() { return Some("Leaf information in the proof chain does not hash to the correct value".to_string()); }
+            if let Some(history_data) = &history.data { // leaf is not censored.
+                if history_data!=data_to_be_proven  { return Some("The proof is not for the provided data".to_string()); }
+                if proof.chain[0].hash!=history.compute_hash().unwrap() { return Some("Leaf information in the proof chain does not hash to the correct value".to_string()); }
+            } else { // the leaf is censored. Need to compute hash using provided data.
+                let uncensored = LeafHashHistory{data:Some(data_to_be_proven.to_string()) , timestamp: history.timestamp };
+                if proof.chain[0].hash!=uncensored.compute_hash().unwrap() { return Some("Leaf information in the proof chain does not hash to the correct value even with the censorship undone by the provided data".to_string()); }
+            }
         }
         _ => { return Some("First element in the proof chain is not actually a leaf".to_string()); }
     }
@@ -98,6 +110,10 @@ pub fn verify_proof(data_to_be_proven:&str,published_root:HashValue,proof:&FullP
 /// where HHHHHHHHHH is the 32 hex character hash of S.
 ///
 /// Returns None if OK, otherwise a description of something that was wrong.
+///
+/// Censored leafs cannot be verified as you don't know the data. However, you can
+/// verify that the provided hash otherwise fits in the tree. It is impossible to verify
+/// the timestamp upon a censored leaf.
 ///
 /// See [verify_proof] for verifying an inclusion proof.
 ///
@@ -154,7 +170,9 @@ pub fn bulk_verify_between_two_consecutive_published_roots(filename:&Path, old_r
             if has_found_root  { return Some(format!("Entry with hash {} comes after a root",hash)); }
             match &source {
                 HashSource::Leaf(history) => {
-                    if hash!=history.compute_hash() { return Some(format!("Leaf with ostensible hash {} actually has hash {}",hash,history.compute_hash())); }
+                    if let Some(uncensored_content_hash) = history.compute_hash() {
+                        if hash!=uncensored_content_hash { return Some(format!("Leaf with ostensible hash {} actually has hash {}",hash,uncensored_content_hash)); }
+                    }
                     work_elements.push(hash);
                 }
                 HashSource::Branch(history) => {

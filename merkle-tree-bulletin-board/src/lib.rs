@@ -32,6 +32,25 @@
 //! hash of its children. The root is a hash of its children and a timestamp. The path
 //! is a proof of inclusion as it would require inverting SHA256 to make a fraudulent path,
 //! and this is currently considered computationally infeasible.
+//!
+//! The system allows censorship of individual leaves. This is obviously generally undesirable and
+//! to some extent undermines some of the point of a committed bulletin board. However,
+//! most if not all countries have censorship laws that require operators of bulletin boards
+//! to do censorship, regardless of whether or not you agree with such laws. The system is
+//! designed to have the following properties in the presence of censorship:
+//!  * Censorship does not invalidate any published root.
+//!  * Censorship, even post a published root, does not invalidate or even affect any proof chain
+//!    other than the particular leaf being censored.
+//!  * Even the leaf being censored can still be verified should you happen to know
+//!    what had been present before the censorship.
+//!  * It is impossible to hide the fact that a censorship post published root has occurred.
+//!  * If you do not use the censorship feature, then the overhead of having it present is negligible.
+//!
+//! Censorship is accomplished by simply not providing the censored text; the leaf and its
+//! associated hash value (and timestamp) are still present. The hash value cannot be modified
+//! post published root, as that would invalidate the parent branch. The timestamp cannot
+//! however be verified unless you happen to know the uncensored text.
+//!
 
 pub mod hash;
 pub mod hash_history;
@@ -45,15 +64,22 @@ pub mod verifier;
 use crate::growing_forest::GrowingForest;
 use crate::hash::HashValue;
 use anyhow::anyhow;
-use crate::hash_history::{HashInfo, FullProof, HashSource, BranchHashHistory, RootHashHistory, LeafHashHistory, timestamp_now};
+use crate::hash_history::{HashInfo, FullProof, HashSource, BranchHashHistory, RootHashHistory, LeafHashHistory, timestamp_now, HashInfoWithHash};
 use std::time::Duration;
+use std::collections::HashSet;
+use std::iter::FromIterator;
 
 /// This is the main API to the bulletin board library. This represents an entire bulletin board.
 /// You provide a backend of type [BulletinBoardBackend] (typically an indexed database),
-/// and it provides a suitable API. Actually, you are likely to wrap your provided backend
+/// and it provides a suitable API.
+///
+/// Actually, you are likely to wrap your provided backend
 /// inside a [backend_journal::BackendJournal] to provide efficient bulk verification support,
-/// or you may use the computationally expensive [deduce_journal::deduce_journal] to compute
-/// the journal needed for bulk verification when needed.
+/// unless you want efficient censorship support. Alternatively
+/// you may use the computationally expensive [deduce_journal::deduce_journal] to compute
+/// the journal needed for bulk verification when needed. In production, you would probably
+/// want to make a separate backend with a separate database connection so [deduce_journal::deduce_journal]
+/// can run in parallel.
 ///
 /// There are two simple provided backends for testing, [backend_memory::BackendMemory] and [backend_flatfile::BackendFlatfile].
 ///
@@ -61,7 +87,8 @@ use std::time::Duration;
 /// <https://github.com/RightToAskOrg/bulletin-board-demo>
 /// Each API call is exposed as a REST call with relative URL
 /// the function name and the the hash query, if any, as a GET argument something like  `get_hash_info?hash=a425...56`.
-/// All results are returned as JSON encodings of the actual results. The leaf is submitted as a POST with body encoded JSON, name `data`
+/// All results are returned as JSON encodings of the actual results. The leaf is submitted as a POST with body encoded JSON object containing a single field name `data`,
+/// and censoring is similarly a POST with body encoded JSON object with a single field name `leaf_to_censor`.
 ///
 /// The Merkle trees are grown as described in [GrowingForest]. Each published root consists of a hash of a small O(log leafs) number
 /// of leaf or branch nodes, and the prior published root. Each branch node in it is a perfectly balanced binary tree.
@@ -91,11 +118,12 @@ use std::time::Duration;
 ///
 /// let backend = BackendMemory::default();
 /// let mut board = BulletinBoard::new(backend).unwrap();
-/// fn assert_is_leaf(source:HashSource,expected_data:&str) { // check that a source is indeed a leaf
-///     match source {
-///         HashSource::Leaf(LeafHashHistory{data : d,timestamp:_}) => assert_eq!(d,expected_data),
-///         _ => panic!("Not a leaf"),
-///     }
+/// // utility function to check that something is indeed a leaf with the expected data.
+/// fn assert_is_leaf(source:HashSource,expected_data:&str) {
+///   match source {
+///     HashSource::Leaf(LeafHashHistory{data:Some(d),timestamp:_}) => assert_eq!(d,expected_data),
+///     _ => panic!("Not a leaf"),
+///   }
 /// }
 /// assert_eq!(board.get_all_published_roots().unwrap(),vec![]);
 /// assert_eq!(board.get_most_recent_published_root().unwrap(),None);
@@ -206,6 +234,11 @@ impl DatabaseTransaction {
         if let Some(info) = backend.get_hash_info(query)? { Ok(Some(info.source)) }
         else { Ok(self.get_hash_info(query)) }
     }
+
+    /// make a transaction containing a single entry.
+    pub fn singleton(hash:HashValue,source:HashSource) -> DatabaseTransaction {
+        DatabaseTransaction{ pending:vec![(hash,source)]}
+    }
 }
 
 /// The data from the bulletin board needs to be stored somewhere.
@@ -225,6 +258,8 @@ pub trait BulletinBoardBackend {
     /// Store a transaction in the database.
     fn publish(&mut self,transaction:&DatabaseTransaction) -> anyhow::Result<()>;
 
+    /// Remove the text associated with a leaf.
+    fn censor_leaf(&mut self,leaf_to_censor:HashValue) -> anyhow::Result<()>;
 
     /// Get the depth of a subtree rooted at a given leaf or branch node) by following elements down the left side of each branch.
     /// A leaf node has depth 0.
@@ -278,8 +313,8 @@ impl <B:BulletinBoardBackend> BulletinBoard<B> {
 
     /// Helper used in submit_leaf to wrap errors so that it is easy to reload the current forest if a recoverable error (e.g. resubmitted data) occurs during this step.
     fn submit_leaf_work(&mut self,data:String) -> anyhow::Result<HashValue> {
-        let history = LeafHashHistory{ timestamp: timestamp_now()?, data };
-        let new_hash = history.compute_hash();
+        let history = LeafHashHistory{ timestamp: timestamp_now()?, data: Some(data) };
+        let new_hash = history.compute_hash().unwrap();
         match self.backend.get_hash_info(new_hash)? {
             Some(HashInfo{source:HashSource::Leaf(other_history), .. }) if other_history==history => {
                 Err(anyhow!("You submitted the same data as already present data"))
@@ -287,7 +322,7 @@ impl <B:BulletinBoardBackend> BulletinBoard<B> {
             Some(hash_collision) => {
                 println!("Time to enter the lottery! Actually you have probably won without entering. You have just done a submission and found a hash collision between {:?} and {:?}",&hash_collision,&history);
                 std::thread::sleep(Duration::from_secs(1)); // work around - wait a second and retry, with a new timestamp.
-                self.submit_leaf_work(history.data)
+                self.submit_leaf_work(history.data.unwrap())
             }
             _ =>  { // no hash collision, all is good. Should go here 99.99999999999999999999999999999..% of the time.
                 let mut transaction = DatabaseTransaction::default();
@@ -435,7 +470,7 @@ impl <B:BulletinBoardBackend> BulletinBoard<B> {
     /// let info = board.get_hash_info(hash).unwrap();
     /// assert_eq!(info.parent,None);
     /// match info.source {
-    ///         HashSource::Leaf(LeafHashHistory{data : d,timestamp:_}) => assert_eq!(d,"A"),
+    ///         HashSource::Leaf(LeafHashHistory{data:Some(d),timestamp:_}) => assert_eq!(d,"A"),
     ///         _ => panic!("Not a leaf"),
     /// }
     /// ```
@@ -481,28 +516,84 @@ impl <B:BulletinBoardBackend> BulletinBoard<B> {
    pub fn get_proof_chain(&self,query:HashValue) -> anyhow::Result<FullProof> {
         let mut chain = vec![];
         let mut node = query;
+        let mut published_root : Option<HashInfoWithHash> =  {
+            if let Ok(Some(published_root_hash)) = self.get_most_recent_published_root() {
+                if let Ok(node_info) = self.get_hash_info(published_root_hash) {
+                    Some(node_info.add_hash(published_root_hash))
+                } else { return Err(anyhow!("The server chain has become corrupt! The published node {} does not exist",node)); } // There is a break in the logic!!!
+            } else {None }
+        };
+        let published: HashSet<HashValue> = {
+            if let Some(info) = &published_root {
+                if let HashSource::Root(history) = &info.source {
+                    HashSet::from_iter(history.elements.iter().cloned())
+                } else { return Err(anyhow!("The server chain has become corrupt! The published node {} has the wrong history",node)); } // There is a break in the logic!!!
+            } else { HashSet::default() }
+        };
         loop {
             if let Ok(node_info) = self.get_hash_info(node) {
                 chain.push(node_info.add_hash(node));
+                if published.contains(&node) { break; }
                 match node_info.parent {
                     Some(parent) => node=parent,
-                    None => break,
+                    None => {
+                        published_root=None; // got to the end of the line without finding something in the published root.
+                        break
+                    },
                 }
             } else {
                 return Err(if query==node { anyhow!("The requested hash is not valid")} else {anyhow!("The server chain has become corrupt! The node {} does not exist",node)});
             } // There is a break in the logic!!!
         }
-        let published_root = {
-            if let Ok(Some(published_root_hash)) = self.get_most_recent_published_root() {
-                if let Ok(node_info) = self.get_hash_info(published_root_hash) {
-                    if let HashSource::Root(history) = &node_info.source {
-                        if history.elements.contains(&node) {
-                            Some(node_info.add_hash(published_root_hash)) // It has been published!
-                        } else { None } // It (barring bad stuff) has not been published yet
-                    } else { return Err(anyhow!("The server chain has become corrupt! The published node {} has the wrong history",node)); } // There is a break in the logic!!!
-                } else { return Err(anyhow!("The server chain has become corrupt! The published node {} does not exist",node)); } // There is a break in the logic!!!
-            } else {None}
-        };
         Ok(FullProof{ chain, published_root })
+    }
+
+    /// Censor a leaf!
+    ///
+    /// The system allows censorship of individual leaves. This is obviously generally undesirable and
+    /// to some extent undermines some of the point of a committed bulletin board. However,
+    /// most if not all countries have censorship laws that require operators of bulletin boards
+    /// to do censorship, regardless of whether or not you agree with such laws. The system is
+    /// designed to have the following properties in the presence of censorship:
+    ///  * Censorship does not invalidate any published root.
+    ///  * Censorship, even post a published root, does not invalidate or even affect any proof chain
+    ///    other than the particular leaf being censored.
+    ///  * Even the leaf being censored can still be verified should you happen to know
+    ///    what had been present before the censorship.
+    ///  * It is impossible to hide the fact that a censorship post published root has occurred.
+    ///  * If you do not use the censorship feature, then the overhead of having it present is negligible.
+    ///
+    /// Censorship is accomplished by simply not providing the censored text; the leaf and its
+    /// associated hash value (and timestamp) are still present. The hash value cannot be modified
+    /// post published root, as that would invalidate the parent branch. The timestamp cannot
+    /// however be verified unless you happen to know the uncensored text.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use merkle_tree_bulletin_board::hash_history::{HashSource, LeafHashHistory};
+    ///
+    /// let mut board = merkle_tree_bulletin_board::BulletinBoard::new(
+    ///     merkle_tree_bulletin_board::backend_memory::BackendMemory::default()).unwrap();
+    /// let hash = board.submit_leaf("A").unwrap();
+    /// // get uncensored leaf
+    /// let info = board.get_hash_info(hash).unwrap();
+    /// assert_eq!(info.parent,None);
+    /// match info.source {
+    ///         HashSource::Leaf(LeafHashHistory{data:Some(d),timestamp:_}) => assert_eq!(d,"A"),
+    ///         _ => panic!("Not an uncensored leaf"),
+    /// }
+    ///
+    /// board.censor_leaf(hash).unwrap();
+    /// // get censored leaf. Identical except data is missing.
+    /// let info = board.get_hash_info(hash).unwrap();
+    /// assert_eq!(info.parent,None);
+    /// match info.source {
+    ///         HashSource::Leaf(LeafHashHistory{data:None,timestamp:_}) => {}
+    ///         _ => panic!("Not a censored leaf"),
+    /// }
+    /// ```
+    pub fn censor_leaf(&mut self,leaf_to_censor:HashValue) -> anyhow::Result<()> {
+        self.backend.censor_leaf(leaf_to_censor)
     }
 }

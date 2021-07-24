@@ -11,6 +11,7 @@ use std::fs::{OpenOptions, File};
 use std::str::FromStr;
 use itertools::Itertools;
 use anyhow::anyhow;
+use crate::deduce_journal::deduce_journal;
 
 /// Store the "database" in a flat, csv file.
 /// This is actually mostly a wrapper around BackendMemory, except transactions also get written to a file, and there is a load from file method.
@@ -18,6 +19,8 @@ use anyhow::anyhow;
 ///
 /// Data is stored in a file in the format used by [write_transaction_to_csv]. The file is appended to for each transaction,
 /// and not held open, although this may change in the future for performance reasons.
+///
+/// Censorship is supported but is horrendously inefficient - the entire file is rewritten after each censorship.
 pub struct BackendFlatfile {
     memory : BackendMemory,
     file : PathBuf,
@@ -37,6 +40,17 @@ impl BulletinBoardBackend for BackendFlatfile {
         write_transaction_to_csv(&transaction,&file)?;
         file.sync_data()?;
         self.memory.publish(transaction)
+    }
+
+    /// Horrendously inefficient - re-deduce order and write out whole file.
+    fn censor_leaf(&mut self, leaf_to_censor: HashValue) -> anyhow::Result<()> {
+        self.memory.censor_leaf(leaf_to_censor)?;
+        let file = OpenOptions::new().write(true).truncate(true).create(true).open(&self.file)?; // Don't append!
+        for transaction in deduce_journal(&self.memory,&vec![],&self.get_all_leaves_and_branches_without_a_parent()?,true)? {
+            write_transaction_to_csv(&transaction,&file)?;
+        }
+        file.sync_data()?;
+        Ok(())
     }
 }
 
@@ -64,6 +78,7 @@ impl BackendFlatfile {
 /// * Otherwise, the first field is an integer 0, 1 or 2 specifying the type of the node being created,
 ///   and the second field is the hash value. After that are fields specifying how the object was created.
 ///   * 0 means a leaf, history is the timestamp (seconds since epoch) and then the string it was created from (appropriately csv escaped).
+///      - If the leaf data has been censored, then there is only a timestamp field, no fourth field.
 ///   * 1 means a branch, history is the left and right hashes.
 ///   * 2 means a published root, history is the timestamp, then the prior published root or empty field, and then the hashes in this node.
 ///
@@ -79,8 +94,8 @@ impl BackendFlatfile {
 /// use merkle_tree_bulletin_board::backend_flatfile::write_transaction_to_csv;
 /// let mut output : Vec<u8> = vec![];
 /// let mut transaction : DatabaseTransaction = DatabaseTransaction::default();
-/// let history = LeafHashHistory{timestamp: 42 ,data: "The answer".to_string() };
-/// let hash = history.compute_hash();
+/// let history = LeafHashHistory{timestamp: 42 ,data: Some("The answer".to_string()) };
+/// let hash = history.compute_hash().unwrap();
 /// assert_eq!(hash.to_string(),"68c3cefbe5b64fc51713cabe524cd35f2be6e52148a0f201476f16f378cb1aee");
 /// transaction.add_leaf_hash(hash,history);
 /// write_transaction_to_csv(&transaction,&mut output).unwrap();
@@ -89,19 +104,20 @@ impl BackendFlatfile {
 /// ```
 ///
 /// The following more complex example shows multiple entries, and CSV sensitive characters "" and ,
+/// Note that in practice, you would never have a transaction with two leaves in it.
 /// ```
 /// use merkle_tree_bulletin_board::DatabaseTransaction;
 /// use merkle_tree_bulletin_board::hash_history::LeafHashHistory;
 /// use merkle_tree_bulletin_board::backend_flatfile::write_transaction_to_csv;
 /// let mut output : Vec<u8> = vec![];
 /// let mut transaction : DatabaseTransaction = DatabaseTransaction::default();
-/// let history = LeafHashHistory{timestamp: 42 ,data: "The answer".to_string() };
-/// let hash = history.compute_hash();
+/// let history = LeafHashHistory{timestamp: 42 ,data: Some("The answer".to_string()) };
+/// let hash = history.compute_hash().unwrap();
 /// assert_eq!(hash.to_string(),"68c3cefbe5b64fc51713cabe524cd35f2be6e52148a0f201476f16f378cb1aee");
 /// transaction.add_leaf_hash(hash,history);
-/// let history = LeafHashHistory{timestamp: 43 ,data: r#"The new improved, "web 2.0" answer
-/// with a newline in the middle"#.to_string() };
-/// let hash = history.compute_hash();
+/// let history = LeafHashHistory{timestamp: 43 ,data: Some(r#"The new improved, "web 2.0" answer
+/// with a newline in the middle"#.to_string()) };
+/// let hash = history.compute_hash().unwrap();
 /// assert_eq!(hash.to_string(),"1d1633c405293e54ac8434c34dfa2532d59172979d1dc38a6389485b35f51762");
 /// transaction.add_leaf_hash(hash,history);
 /// write_transaction_to_csv(&transaction,&mut output).unwrap();
@@ -117,7 +133,11 @@ pub fn write_transaction_to_csv<W: Write>(transaction:&DatabaseTransaction, writ
     for (hash,source) in &transaction.pending {
         match source {
             HashSource::Leaf(history) => {
-                csv_writer.write_record(&["0",&hash.to_string(),&history.timestamp.to_string(),&history.data])?;
+                if let Some(uncensored_data) = &history.data {
+                    csv_writer.write_record(&["0",&hash.to_string(),&history.timestamp.to_string(),uncensored_data])?;
+                } else {
+                    csv_writer.write_record(&["0",&hash.to_string(),&history.timestamp.to_string()])?;
+                }
             }
             HashSource::Branch(history) => {
                 csv_writer.write_record(&["1",&hash.to_string(),&history.left.to_string(),&history.right.to_string()])?;
@@ -171,7 +191,8 @@ impl<R: Read> TransactionIterator<R> {
     /// assert_eq!(trans1.pending.len(),1);
     /// let (hash,source) = trans1.pending[0].clone();
     /// assert_eq!(hash.to_string(),"68c3cefbe5b64fc51713cabe524cd35f2be6e52148a0f201476f16f378cb1aee");
-    /// assert_eq!(source,HashSource::Leaf(LeafHashHistory{timestamp:42,data:"The answer".to_string()}));
+    /// assert_eq!(source,HashSource::Leaf(
+    ///       LeafHashHistory{timestamp:42,data:Some("The answer".to_string())}));
     /// ```
     pub fn new(reader: R) -> TransactionIterator<R> {
         TransactionIterator { csv_reader : ReaderBuilder::new().has_headers(false).flexible(true).from_reader(reader), record: StringRecord::new() , read_ahead:None }
@@ -191,8 +212,8 @@ impl<'r, R: Read> Iterator for TransactionIterator<R> {
             };
             let history = match record.get(0) {
                 Some("0") => { // leaf
-                    if record.len()!=4 { return Err(anyhow!("Leaf node should have 4 fields")); }
-                    HashSource::Leaf(LeafHashHistory{ timestamp : Timestamp::from_str(record.get(2).unwrap())?, data: record.get(3).unwrap().to_string() })
+                    if record.len()<3 || record.len()>4 { return Err(anyhow!("Leaf node should have 3 or 4 fields")); }
+                    HashSource::Leaf(LeafHashHistory{ timestamp : Timestamp::from_str(record.get(2).unwrap())?, data: record.get(3).map(|e|e.to_string()) })
                 }
                 Some("1") => { // branch
                     if record.len()!=4 { return Err(anyhow!("Branch node should have 4 fields")); }
@@ -248,7 +269,8 @@ impl<'r, R: Read> Iterator for TransactionIterator<R> {
                         if !transaction.pending.is_empty() { return Some(Ok(transaction)) }
                     }
                     // println!("EOF record with {} entries line {} byte {} self line {} byte {}",self.record.len(),self.record.position().unwrap().line(),self.record.position().unwrap().byte(),self.csv_reader.position().line(),self.csv_reader.position().byte());
-                    return Some(Err(anyhow!("transaction not complete")));
+                    // println!("transaction.pending has {} entries, the first one being for {}",transaction.pending.len(),transaction.pending[0].0);
+                    return Some(Err(anyhow!("transaction starting at line {} with hash {} not complete",self.record.position().unwrap().line(),transaction.pending[0].0)));
                 }
             }
         }
