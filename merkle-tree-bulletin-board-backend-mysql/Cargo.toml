@@ -1,0 +1,14 @@
+[package]
+name = "merkle-tree-bulletin-board-backend-mysql"
+version = "0.1.0"
+edition = "2018"
+authors = ["Andrew Conway <arcgit@greatcactus.org>"]
+description = "A mysql backend for merkle-tree-bulletin-board."
+license = "MIT OR Apache-2.0"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+merkle-tree-bulletin-board = { path = "../merkle-tree-bulletin-board" }
+anyhow = "1.0"
+mysql = "21.0"

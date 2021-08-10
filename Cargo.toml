@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "merkle-tree-bulletin-board",
+    "merkle-tree-bulletin-board-backend-mysql",
     "bulletin-board-demo",
 ]
 

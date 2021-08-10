@@ -81,7 +81,11 @@ use std::iter::FromIterator;
 /// want to make a separate backend with a separate database connection so [deduce_journal::deduce_journal]
 /// can run in parallel.
 ///
-/// There are two simple provided backends for testing, [backend_memory::BackendMemory] and [backend_flatfile::BackendFlatfile].
+/// There are two simple provided backends for testing and prototyping,
+/// [backend_memory::BackendMemory] and [backend_flatfile::BackendFlatfile].
+/// In production you will probably want to use some database; this is somewhat database
+/// dependent, and so a sample mysql database backend is given
+/// in <https://github.com/RightToAskOrg/bulletin-board-demo>.
 ///
 /// There is a demo website that exposes the below API at
 /// <https://github.com/RightToAskOrg/bulletin-board-demo>
@@ -90,25 +94,26 @@ use std::iter::FromIterator;
 /// All results are returned as JSON encodings of the actual results. The leaf is submitted as a POST with body encoded JSON object containing a single field name `data`,
 /// and censoring is similarly a POST with body encoded JSON object with a single field name `leaf_to_censor`.
 ///
+///
 /// The Merkle trees are grown as described in [GrowingForest]. Each published root consists of a hash of a small O(log leafs) number
 /// of leaf or branch nodes, and the prior published root. Each branch node in it is a perfectly balanced binary tree.
 /// Verification steps are described in [backend_journal::BackendJournal]
 ///
 /// # Example
 ///
-/// In the following example, four elements are inserted, "A", "B", "C" and "D" into a previously empty bulletin board.
-/// A publication occurs after "C" and another publication after "D".
+/// In the following example, four elements are inserted, "a", "b", "c" and "d" into a previously empty bulletin board.
+/// A publication occurs after "c" and another publication after "d".
 ///
-/// When A is inserted, it is a leaf forming a single tree of depth 0.
-/// When B is inserted after it, it is merged with A to make a tree of depth 1 with A on the left and B on the right.
+/// When "a" is inserted, it is a leaf forming a single tree of depth 0.
+/// When "b" is inserted after it, it is merged with "a" to make a tree of depth 1 with "a" on the left and "b" on the right.
 ///
-/// When C is inserted, it forms a new single tree of depth 0. This does not merge with A or B as they are already taken,
-/// and it does not merge with the combined tree AB as that has a different depth and that would lead to an unbalanced tree.
-/// So there are now two pending trees, one containing AB and one containing C.
+/// When c is inserted, it forms a new single tree of depth 0. This does not merge with "a" or "b" as they are already taken,
+/// and it does not merge with the combined tree ab as that has a different depth and that would lead to an unbalanced tree.
+/// So there are now two pending trees, one containing ab and one containing c.
 ///
-/// The first publication contains these two trees AB and C.
+/// The first publication contains these two trees ab and c.
 ///
-/// When D is inserted, it forms a tree with C, and the new tree CD merges with AB to make a new depth 2 tree ABCD.
+/// When d is inserted, it forms a tree with c, and the new tree cd merges with ab to make a new depth 2 tree abcd.
 /// This single tree is in the second publication.
 /// ```
 /// use merkle_tree_bulletin_board::backend_memory::BackendMemory;
@@ -129,73 +134,65 @@ use std::iter::FromIterator;
 /// assert_eq!(board.get_most_recent_published_root().unwrap(),None);
 /// assert_eq!(board.get_parentless_unpublished_hash_values().unwrap(),vec![]);
 ///
-/// #[allow(non_snake_case)]
-/// let hash_A : HashValue = board.submit_leaf("A").unwrap();
+/// let hash_a : HashValue = board.submit_leaf("a").unwrap();
 /// // we have inserted A, which is a single tree but nothing is published.
-/// assert_eq!(board.get_hash_info(hash_A).unwrap().parent,None);
-/// assert_is_leaf(board.get_hash_info(hash_A).unwrap().source,"A");
+/// assert_eq!(board.get_hash_info(hash_a).unwrap().parent,None);
+/// assert_is_leaf(board.get_hash_info(hash_a).unwrap().source,"a");
 /// assert_eq!(board.get_all_published_roots().unwrap(),vec![]);
-/// assert_eq!(board.get_parentless_unpublished_hash_values().unwrap(),vec![hash_A]);
+/// assert_eq!(board.get_parentless_unpublished_hash_values().unwrap(),vec![hash_a]);
 ///
-/// #[allow(non_snake_case)]
-/// let hash_B : HashValue = board.submit_leaf("B").unwrap();
-/// // we have now inserted B, which will be merged into a tree with A on the left and B on the right.
-/// #[allow(non_snake_case)]
-/// let branch_AB : HashValue = board.get_hash_info(hash_A).unwrap().parent.unwrap();
-/// assert_eq!(board.get_hash_info(hash_B).unwrap().parent,Some(branch_AB));
-/// assert_is_leaf(board.get_hash_info(hash_B).unwrap().source,"B");
+/// let hash_b : HashValue = board.submit_leaf("b").unwrap();
+/// // we have inserted 'b', which will be merged into a tree with 'a' on the left and 'b' right.
+/// let branch_ab : HashValue = board.get_hash_info(hash_a).unwrap().parent.unwrap();
+/// assert_eq!(board.get_hash_info(hash_b).unwrap().parent,Some(branch_ab));
+/// assert_is_leaf(board.get_hash_info(hash_b).unwrap().source,"b");
 /// assert_eq!(board.get_all_published_roots().unwrap(),vec![]);
-/// assert_eq!(board.get_parentless_unpublished_hash_values().unwrap(),vec![branch_AB]);
-/// assert_eq!(board.get_hash_info(branch_AB).unwrap(), HashInfo{
-///    source: HashSource::Branch(BranchHashHistory{left:hash_A,right:hash_B}) ,parent: None});
+/// assert_eq!(board.get_parentless_unpublished_hash_values().unwrap(),vec![branch_ab]);
+/// assert_eq!(board.get_hash_info(branch_ab).unwrap(), HashInfo{
+///    source: HashSource::Branch(BranchHashHistory{left:hash_a,right:hash_b}) ,parent: None});
 ///
-/// #[allow(non_snake_case)]
-/// let hash_C : HashValue = board.submit_leaf("C").unwrap();
-/// // we have now inserted C, which will not be merged with branchAB
+/// let hash_c : HashValue = board.submit_leaf("c").unwrap();
+/// // we have now inserted 'c', which will not be merged with branch_ab
 /// // as they are different depths and that would lead to an unbalanced tree.
-/// assert_eq!(board.get_hash_info(hash_C).unwrap().parent,None);
-/// assert_is_leaf(board.get_hash_info(hash_C).unwrap().source,"C");
+/// assert_eq!(board.get_hash_info(hash_c).unwrap().parent,None);
+/// assert_is_leaf(board.get_hash_info(hash_c).unwrap().source,"c");
 /// assert_eq!(board.get_all_published_roots().unwrap(),vec![]);
-/// assert_eq!(board.get_parentless_unpublished_hash_values().unwrap(),vec![branch_AB,hash_C]);
+/// assert_eq!(board.get_parentless_unpublished_hash_values().unwrap(),vec![branch_ab,hash_c]);
 ///
-/// // now publish! This will publish branch_AB and hash_C.
+/// // now publish! This will publish branch_ab and hash_c.
 /// let published1 : HashValue = board.order_new_published_root().unwrap();
 /// match board.get_hash_info(published1).unwrap().source {
 ///     HashSource::Root(RootHashHistory{timestamp:_,elements:e,prior:None}) =>
-///        assert_eq!(e,vec![branch_AB,hash_C]),
+///        assert_eq!(e,vec![branch_ab,hash_c]),
 ///     _ => panic!("Should be a root"),
 /// }
 /// assert_eq!(board.get_all_published_roots().unwrap(),vec![published1]);
 /// assert_eq!(board.get_most_recent_published_root().unwrap(),Some(published1));
 /// assert_eq!(board.get_parentless_unpublished_hash_values().unwrap(),vec![]);
-/// // branch_AB,hash_C are still parentless and can be merged with, but are no longer unpublished.
+/// // branch_ab,hash_c are still parentless and can be merged with, but are no longer unpublished.
 ///
-/// // add another element D, which will merge with C, making branch_CD,
-/// // which will then merge with AB making a single tree ABCD.
-/// #[allow(non_snake_case)]
-/// let hash_D : HashValue = board.submit_leaf("D").unwrap();
-/// // we have inserted A, which is a single tree but nothing is published.
-/// #[allow(non_snake_case)]
-/// let branch_CD : HashValue = board.get_hash_info(hash_C).unwrap().parent.unwrap();
-/// assert_eq!(board.get_hash_info(hash_D).unwrap().parent,Some(branch_CD));
-/// assert_is_leaf(board.get_hash_info(hash_D).unwrap().source,"D");
-/// #[allow(non_snake_case)]
-/// let branch_ABCD : HashValue = board.get_hash_info(branch_AB).unwrap().parent.unwrap();
-/// assert_eq!(board.get_hash_info(branch_CD).unwrap(),HashInfo{
-///     source: HashSource::Branch(BranchHashHistory{left:hash_C,right:hash_D}) ,
-///     parent: Some(branch_ABCD)});
-/// assert_eq!(board.get_hash_info(branch_ABCD).unwrap(),HashInfo{
-///     source: HashSource::Branch(BranchHashHistory{left:branch_AB,right:branch_CD}) ,
+/// // add another element 'd', which will merge with 'c', making branch_cd,
+/// // which will then merge with ab making a single tree abcd.
+/// let hash_d : HashValue = board.submit_leaf("d").unwrap();
+/// let branch_cd : HashValue = board.get_hash_info(hash_c).unwrap().parent.unwrap();
+/// assert_eq!(board.get_hash_info(hash_d).unwrap().parent,Some(branch_cd));
+/// assert_is_leaf(board.get_hash_info(hash_d).unwrap().source,"d");
+/// let branch_abcd : HashValue = board.get_hash_info(branch_ab).unwrap().parent.unwrap();
+/// assert_eq!(board.get_hash_info(branch_cd).unwrap(),HashInfo{
+///     source: HashSource::Branch(BranchHashHistory{left:hash_c,right:hash_d}) ,
+///     parent: Some(branch_abcd)});
+/// assert_eq!(board.get_hash_info(branch_abcd).unwrap(),HashInfo{
+///     source: HashSource::Branch(BranchHashHistory{left:branch_ab,right:branch_cd}) ,
 ///     parent: None});
 /// assert_eq!(board.get_all_published_roots().unwrap(),vec![published1]);
-/// assert_eq!(board.get_parentless_unpublished_hash_values().unwrap(),vec![branch_ABCD]);
+/// assert_eq!(board.get_parentless_unpublished_hash_values().unwrap(),vec![branch_abcd]);
 ///
-/// // do another publication, which now only has to contain branchABCD which includes everything,
+/// // do another publication, which now only has to contain abcd which includes everything,
 /// // including things from before the last publication.
 /// let published2 = board.order_new_published_root().unwrap();
 /// match board.get_hash_info(published2).unwrap().source {
 ///     HashSource::Root(RootHashHistory{timestamp:_,elements:e,prior:Some(prior)}) => {
-///         assert_eq!(e,vec![branch_ABCD]);
+///         assert_eq!(e,vec![branch_abcd]);
 ///         assert_eq!(prior,published1);
 ///     }
 ///     _ => panic!("Should be a root"),
@@ -203,7 +200,7 @@ use std::iter::FromIterator;
 /// assert_eq!(board.get_all_published_roots().unwrap(),vec![published1,published2]);
 /// assert_eq!(board.get_most_recent_published_root().unwrap(),Some(published2));
 /// assert_eq!(board.get_parentless_unpublished_hash_values().unwrap(),vec![]);
-/// // branch_ABCD is still parentless and can be merged with, but is no longer unpublished.
+/// // branch_abcd is still parentless and can be merged with, but is no longer unpublished.
 /// ```
 ///
 pub struct BulletinBoard<B:BulletinBoardBackend> {
