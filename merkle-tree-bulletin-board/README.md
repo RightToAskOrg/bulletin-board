@@ -1,14 +1,8 @@
-# Merkle tree Bulletin board library and demo
+# Merkle tree Bulletin board library
 
-This [repository](https://github.com/RightToAskOrg/bulletin-board) contains:
-* merkle-tree-bulletin-board : A general purpose library for implementing a bulletin 
-  board and providing proofs of inclusion via Merkle trees.  
-* bulletin-board-demo : A demo webserver with a thin wrapper around the main functionality
-  provided by the above library with html files explaining the proof in detail and
-  showing the trees graphically. This is not intended for production, but rather to 
-  show an example of how to use the library. 
-* merkle-tree-bulletin-board-backend-mysql : A demo (usable) mysql backend for the
-  merkle-tree-bulletin-board.
+This implements a verifiable bulletin board based upon a Merkle tree. It is included
+in a [repository](https://github.com/RightToAskOrg/bulletin-board) which also contains
+a demo web server using it and a mysql backend.
 
 # What does it do?
 
@@ -43,49 +37,9 @@ of advantages of this approach:
   prove that it was the thing that was censored. The only thing that censorship does is refuse to
   provide the text that went into computing that particular leaf hash.
   
-# How to use, compile, etc.
+### API
 
-This is a rust library. Make sure rust is installed on your computer. Version 1.54 or later is
-recommended.
-
-## To run the demo server.
-
-* Make sure rust is installed on your computer.
-* In this directory, execute `cargo run` which will download dependencies, compile, and run the server. You can stop it with control C.
-* Open a web browser at http://localhost:8090
-
-**Add an entry to the board** (http://localhost:8090/AddEntry.html) allows you to enter a series of strings, getting in
-     response a hash value. The board is committing to include that hash value in the next published Merkle tree.
-     Add at least one. The corresponding hash will appear in the status, with a link.
-
-**Publish a new root**
-     When you click 'Publish new root', they are hashed and then incorporated as leaf nodes into a new Merkle Tree. All prior
-     entries are included.
-
-**Get a proof of inclusion** Open (preferably in a new tab) one of the links for the hash values obtained for a string you entered.
-     This gives information about that hash value, and how to rederive it yourself. Click on 'Show Full Text Inclusion Proof' to
-      get a detailed proof linking your entered node to the newly published root.
-
-You can get a proof of inclusion of the data in one (old) published root with respect to a newer root by
-getting a proof of inclusion with respect to the new root for all the (max log N) nodes referenced in
-the old root.
-
-The server saves (after every action) and loads (on startup) data from the human readable text file `database.csv` 
-and stores journals (transactions between published roots) in the `journal` directory in the same format.
-
-### Rust docs
-
-Run `cargo doc --no-deps` to generate rust docs
-
-The demo server is a simple REST API with JSON encoding. 
-The API is a simple wrapper around the functions described in `target/doc/merkle_tree_bulletin_board/struct.BulletinBoard.html`
-
-## To use in your own system
-
-You will probably want to use the library in merkle-tree-bulletin-board and make your own server and backend.
-This can be done from this API or from crates.io (TODO). 
-
-The main API is from the BulletinBoard structure, which has extensive documentation (see rust docs, above).
+Start from the BulletinBoard structure, which has extensive documentation.
 
 There are also helper verifier functions for inclusion proofs, *but you should write your own*
 as the whole point is to not need to trust this!
@@ -148,7 +102,7 @@ library guarantees simple log N size inclusion proofs.
 The following picture from the demo shows the status after submitting three entries, A, B, and C, and
 then publishing a root.
 
-![tree image](merkle-tree-bulletin-board/README_images/ABC_published.png)
+![tree image](README_images/ABC_published.png)
 
 * The A produced a leaf with hash `013c...`
 * The B produced a leaf with hash `b8ba...`
@@ -158,7 +112,7 @@ then publishing a root.
 
 Then an extra entry "D" was submitted and a new publication was done.
 
-![tree image](merkle-tree-bulletin-board/README_images/ABCD_published.png)
+![tree image](README_images/ABCD_published.png)
 
 * The D produced a leaf with hash `1f14...`
 * The C and D were merged into a branch with hash `ef57...`
@@ -172,7 +126,7 @@ to the prior published root `bf9a...`
 A full inclusion proof for the entry A in this example in the published root `dbe3...` is given
 in the following screenshot of the demo webserver:
 
-![inclusion proof](merkle-tree-bulletin-board/README_images/InclusionProof.png)
+![inclusion proof](README_images/InclusionProof.png)
 
 ## License
 
