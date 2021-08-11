@@ -106,8 +106,9 @@ function getBodyRelativePosition(elem) {
  * Draw a line between two html elements, from the middle of e1 to the middle of e2.
  * @param e1{HTMLElement}
  * @param e2{HTMLElement}
+ * @param broken{boolean} true if the line should be broken.
  */
-function drawLineBetween(e1,e2) {
+function drawLineBetween(e1,e2,broken) {
     if (!(e1&&e2)) return; // don't draw if the elements don't exist.
     let p1 = getBodyRelativePosition(e1);
     let p2 = getBodyRelativePosition(e2);
@@ -130,8 +131,9 @@ function drawLineBetween(e1,e2) {
     line.setAttribute("x2", x2);
     line.setAttribute("y1", y1);
     line.setAttribute("y2", y2);
-    line.setAttribute("stroke", "red");
+    line.setAttribute("stroke", broken?"red":"green");
     line.setAttribute("stroke-width", "3px");
+    // if (broken) line.setAttribute("stroke-dasharray","4");
 }
 
 function showTextInclusionProof(where,lastComputedHash) {
@@ -149,14 +151,14 @@ function showTextInclusionProof(where,lastComputedHash) {
                 addLabeledLink(add(where,"p"),"This node's parent is ",info.hash);
                 describeNode(where,info.source);
                 let locations = await explainHowHashWasComputed(where, info.source, info.hash,proof.chain[i-1].hash);
-                drawLineBetween(lastComputedHash,locations.foundLookingFor);
+                if (lastComputedHash && locations.foundLookingFor) drawLineBetween(lastComputedHash,locations.foundLookingFor,lastComputedHash.innerText!==locations.foundLookingFor.innerText);
                 lastComputedHash=locations.computedHashLocation;
             }
             if (proof.published_root) {
                 addLabeledLink(add(where,"p"),"This node is listed in the published root node ",proof.published_root.hash);
                 describeNode(where,proof.published_root.source);
                 let locations = await explainHowHashWasComputed(where, proof.published_root.source, proof.published_root.hash,proof.chain.length>0?proof.chain[proof.chain.length-1].hash:null);
-                drawLineBetween(lastComputedHash,locations.foundLookingFor);
+                if (lastComputedHash && locations.foundLookingFor) drawLineBetween(lastComputedHash,locations.foundLookingFor,lastComputedHash.innerText!==locations.foundLookingFor.innerText);
             } else {
                 add(where,"p").innerText="This node has not been published yet. Try refreshing this page after the next public published hash value"
             }

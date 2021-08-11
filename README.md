@@ -168,3 +168,8 @@ Then an extra entry "D" was submitted and a new publication was done.
 Note that if you do the same with the demo you will get the same structure but different hash values as timestamps are included.
 Note also that the picture above does not show (for space reasons) the link in the published root `dbe3...`
 to the prior published root `bf9a...`
+
+A full inclusion proof for the entry A in this example in the published root `dbe3...` is given
+in the following screenshot of the demo webserver:
+
+![inclusion proof](InclusionProof.png)
