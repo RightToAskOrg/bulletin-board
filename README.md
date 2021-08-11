@@ -32,14 +32,16 @@ to "achieving world peace, prosperity and universal love" is hard.
 That solves a very similar problem in a simpler manner, and is preferable except for a couple
 of advantages of this approach:
 * The Merkle tree lets one check that their own contribution is in the tree without having
-  to download the entire bulletin board, in fact in time logarithmic in the size of the bulletin
+  to download the entire bulletin board, in fact in time and space logarithmic in the size of the bulletin
   board.
 * The operator may choose to refuse to give details on part of the tree *after* publishing
   a hash, without harming the verification of the rest of the tree. This is essential to
-  be able to support censorship of the board, which is a legal requirement in much of
-  the world. Assume standard rant about how biased such laws tend to be against things that would
+  be able to support censorship of the board, which is a legal requirement in much (most? all?) of
+  the world for many applications. Assume standard rant about how biased such laws tend to be against things that would
   embarrass the powers that be. The operator can't hide the fact that something has been 
-  censored.
+  censored. Furthermore if you happen to know what the thing that was censored was, you can
+  prove that it was the thing that was censored. The only thing that censorship does is refuse to
+  provide the text that went into computing that particular leaf hash.
   
 # How to use, compile, etc.
 
@@ -64,20 +66,29 @@ recommended.
      This gives information about that hash value, and how to rederive it yourself. Click on 'Show Full Text Inclusion Proof' to
       get a detailed proof linking your entered node to the newly published root.
 
-It saves and loads data from the human readable text file `database.csv` 
+You can get a proof of inclusion of the data in one (old) published root with respect to a newer root by
+getting a proof of inclusion with respect to the new root for all the (max log N) nodes referenced in
+the old root.
+
+The server saves (after every action) and loads (on startup) data from the human readable text file `database.csv` 
 and stores journals (transactions between published roots) in the `journal` directory in the same format.
 
-## Rust docs
+### Rust docs
 
-There is a simple REST API with JSON encoding. Run `cargo doc --no-deps` to generate rust docs -
-the API is a simple wrapper around the functions described in `target/doc/merkle_tree_bulletin_board/struct.BulletinBoard.html`
+Run `cargo doc --no-deps` to generate rust docs
+
+The demo server is a simple REST API with JSON encoding. 
+The API is a simple wrapper around the functions described in `target/doc/merkle_tree_bulletin_board/struct.BulletinBoard.html`
 
 ## To use in your own system
 
 You will probably want to use the library in merkle-tree-bulletin-board and make your own server and backend.
 This can be done from this API or from crates.io (TODO). 
 
-The main API is from the BulletinBoard structure.
+The main API is from the BulletinBoard structure, which has extensive documentation (see rust docs, above).
+
+There are also helper verifier functions for inclusion proofs, *but you should write your own*
+as the whole point is to not need to trust this!
 
 ### Backend
 
@@ -104,14 +115,14 @@ There are three different types of node in the system:
 * Leaves. Each entry on the bulletin board is a leaf. Hash is of `0|timestamp|entry`
 * Branches. Each branch contains a left and right node, which may be a branch or a leaf. 
   Everything on the left side of a branch precedes chronologically everything on the right side of
-  a branch. Both sides of a branch will be perfect binary trees of the same depth. Each leaf and
+  a branch. Both sides of a branch will be perfect balanced binary trees of the same depth. Each leaf and
   branch will have a maximum of 1 parent. Hash is of `1|left|right`
 * Published roots. When a publication is done, a published root node is created which
   contains the hash of the prior published root, if any, and all the currently parentless
   leaves and branches, of which there will be O(log N) where N is the number of leaves.
   Hash is of `2|timestamp|prior|elements concatenated`
   
-See hash_history.rs for precise description of the hash definitions.
+See comments in `hash_history.rs` for precise description of the hash definitions.
   
 Each time an entry is added, a new leaf is created. This is appended to a pending list of trees.
 (a leaf is considered a tree of depth 0). 
@@ -124,6 +135,14 @@ This pending list contains the list of leaves and branches that have no parents;
 root is really a list of these elements. This means publishing a root hash is a relatively
 minor operation, very similar to a git commit object.
 
+Many Merkle tree implementations bunch all nodes together into one tree at the point of
+publication, and ensure that that tree is present in future published trees. This common approach
+has the advantage that a published root is simpler as it only has one item in it, so an 
+inclusion proof for a prior published root is just an inclusion proof for that one item instead of several items.
+However that approach leads to unbalanced binary trees, and often poor performance and/or complexity for
+inclusion proofs for old entries with respect to new published roots. The approach used in this
+library guarantees simple log N size inclusion proofs.
+
 ## Example
 
 The following picture from the demo shows the status after submitting three entries, A, B, and C, and
@@ -131,19 +150,21 @@ then publishing a root.
 
 ![tree image](ABC_published.png)
 
-* The A produced a leaf with hash 013c...
-* The B produced a leaf with hash b8ba...
-* A and B were then merged into a branch with hash e4d5...
-* The C produced a leaf with hash 23e3...
-* Publication produced a published root with hash bf9a... that referenced the branch e4d5... and leaf 23e3...
+* The A produced a leaf with hash `013c...`
+* The B produced a leaf with hash `b8ba...`
+* A and B were then merged into a branch with hash `e4d5...`
+* The C produced a leaf with hash `23e3...`
+* Publication produced a published root with hash `bf9a...` that referenced the branch `e4d5...` and leaf `23e3...`
 
 Then an extra entry "D" was submitted and a new publication was done.
 
 ![tree image](ABCD_published.png)
 
-* The D produced a leaf with hash 1f14...
-* The C and D were merged into a branch with hash ef57...
-* The AB and CD branches were merged into a branch with hash 1fd7...
-* Publication produced a published root with hash dbe3... that referenced the branch 1fd7...
+* The D produced a leaf with hash `1f14...`
+* The C and D were merged into a branch with hash `ef57...`
+* The AB and CD branches were merged into a branch with hash `1fd7...`
+* Publication produced a published root with hash `dbe3...` that referenced the branch `1fd7...`
 
-Note that if you do the same with the demo you will get different hash values as timestamps are included.
+Note that if you do the same with the demo you will get the same structure but different hash values as timestamps are included.
+Note also that the picture above does not show (for space reasons) the link in the published root `dbe3...`
+to the prior published root `bf9a...`
