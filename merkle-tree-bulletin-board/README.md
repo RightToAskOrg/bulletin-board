@@ -39,7 +39,7 @@ of advantages of this approach:
   
 ### API
 
-Start from the BulletinBoard structure, which has extensive documentation.
+Start from the [BulletinBoard](https://docs.rs/merkle-tree-bulletin-board/0.1.0/merkle_tree_bulletin_board/struct.BulletinBoard.html) structure, which has extensive documentation.
 
 There are also helper verifier functions for inclusion proofs, *but you should write your own*
 as the whole point is to not need to trust this!
@@ -102,7 +102,7 @@ library guarantees simple log N size inclusion proofs.
 The following picture from the demo shows the status after submitting three entries, A, B, and C, and
 then publishing a root.
 
-![tree image](README_images/ABC_published.png)
+![tree image](https://raw.githubusercontent.com/RightToAskOrg/bulletin-board/main/merkle-tree-bulletin-board/README_images/ABC_published.png)
 
 * The A produced a leaf with hash `013c...`
 * The B produced a leaf with hash `b8ba...`
@@ -112,7 +112,7 @@ then publishing a root.
 
 Then an extra entry "D" was submitted and a new publication was done.
 
-![tree image](README_images/ABCD_published.png)
+![tree image](https://raw.githubusercontent.com/RightToAskOrg/bulletin-board/main/merkle-tree-bulletin-board/README_images/ABCD_published.png)
 
 * The D produced a leaf with hash `1f14...`
 * The C and D were merged into a branch with hash `ef57...`
@@ -126,7 +126,7 @@ to the prior published root `bf9a...`
 A full inclusion proof for the entry A in this example in the published root `dbe3...` is given
 in the following screenshot of the demo webserver:
 
-![inclusion proof](README_images/InclusionProof.png)
+![inclusion proof](https://raw.githubusercontent.com/RightToAskOrg/bulletin-board/main/merkle-tree-bulletin-board/README_images/InclusionProof.png)
 
 ## License
 

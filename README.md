@@ -75,15 +75,20 @@ and stores journals (transactions between published roots) in the `journal` dire
 
 ### Rust docs
 
-Run `cargo doc --no-deps` to generate rust docs
+Run `cargo doc --no-deps` to generate rust docs. Alternatively, use the published docs on
+[docs.rs](https://docs.rs/merkle-tree-bulletin-board/0.1.0/merkle_tree_bulletin_board/struct.BulletinBoard.html)
 
 The demo server is a simple REST API with JSON encoding. 
-The API is a simple wrapper around the functions described in `target/doc/merkle_tree_bulletin_board/struct.BulletinBoard.html`
+The API is a simple wrapper around the functions described in 
+[`target/doc/merkle_tree_bulletin_board/struct.BulletinBoard.html`](https://docs.rs/merkle-tree-bulletin-board/0.1.0/merkle_tree_bulletin_board/struct.BulletinBoard.html)
 
 ## To use in your own system
 
 You will probably want to use the library in merkle-tree-bulletin-board and make your own server and backend.
-This can be done from this API or from crates.io (TODO). 
+This can be done from this API or from crates.io. For the latter, include the following line in your `Cargo.toml` file:
+```
+merkle-tree-bulletin-board = "0.1"
+```
 
 The main API is from the BulletinBoard structure, which has extensive documentation (see rust docs, above).
 
