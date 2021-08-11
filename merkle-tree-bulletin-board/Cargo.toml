@@ -5,6 +5,11 @@ authors = ["Andrew Conway <arcgit@greatcactus.org>"]
 edition = "2018"
 description = "A public bulletin board based upon Merkle trees."
 license = "MIT OR Apache-2.0"
+homepage = "https://github.com/RightToAskOrg/bulletin-board"
+repository = "https://github.com/RightToAskOrg/bulletin-board"
+readme = "../README.md"
+keywords = ["Merkle", "bulletin", "verifiable", "board"]
+categories = ["cryptography", "data-structures"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
