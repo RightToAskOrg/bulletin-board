@@ -85,10 +85,11 @@ use std::iter::FromIterator;
 /// [backend_memory::BackendMemory] and [backend_flatfile::BackendFlatfile].
 /// In production you will probably want to use some database; this is somewhat database
 /// dependent, and so a sample mysql database backend is given
-/// in <https://github.com/RightToAskOrg/bulletin-board-demo>.
+/// in <https://github.com/RightToAskOrg/bulletin-board>.
 ///
-/// There is a demo website that exposes the below API at
-/// <https://github.com/RightToAskOrg/bulletin-board-demo>
+/// There is a demo website project (bulletin-board-demo) that exposes the below API
+/// in the git repository at
+/// <https://github.com/RightToAskOrg/bulletin-board>
 /// Each API call is exposed as a REST call with relative URL
 /// the function name and the the hash query, if any, as a GET argument something like  `get_hash_info?hash=a425...56`.
 /// All results are returned as JSON encodings of the actual results. The leaf is submitted as a POST with body encoded JSON object containing a single field name `data`,
