@@ -181,6 +181,8 @@ in the following screenshot of the demo webserver:
 
 ## License
 
+Copyright 2021 Thinking Cybersecurity Pty. Ltd.
+
 Licensed under either of
 
 * Apache License, Version 2.0
