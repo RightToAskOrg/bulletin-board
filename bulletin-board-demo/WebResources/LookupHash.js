@@ -78,15 +78,20 @@ async function explainHowHashWasComputed(where,source,expecting,lookingFor) {
         uncomputedHashLocation.innerText = expecting;
         return { computedHashLocation:uncomputedHashLocation,foundLookingFor:foundLookingFor};
     } else {
-        const hashBuffer = await crypto.subtle.digest('SHA-256', Uint8Array.from(bytesToHash));           // hash the message
-        const hashArray = Array.from(new Uint8Array(hashBuffer));                     // convert buffer to byte array
-        const computedHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join(''); // convert bytes to hex string
         const computedHashDiv = add(where,"div");
         add(computedHashDiv,"span").innerText="The Sha256 hash of the above elements concatenated is ";
         const computedHashLocation = add(computedHashDiv,"span","PartOfChain");
-        computedHashLocation.innerText=computedHash;
-        if (expecting && expecting!==computedHash) {
-            add(where,"b").innerText="THIS IS NOT WHAT IS EXPECTED. Something is going badly wrong";
+        if (crypto && crypto.subtle) {
+            const hashBuffer = await crypto.subtle.digest('SHA-256', Uint8Array.from(bytesToHash));           // hash the message
+            const hashArray = Array.from(new Uint8Array(hashBuffer));                     // convert buffer to byte array
+            const computedHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join(''); // convert bytes to hex string
+            computedHashLocation.innerText=computedHash;
+            if (expecting && expecting!==computedHash) {
+                add(where,"b").innerText="THIS IS NOT WHAT IS EXPECTED. Something is going badly wrong";
+            }
+        } else {
+            // no sha256 available. Usually available on localhost, or via https.
+            computedHashLocation.innerText="Not available on your browser, sorry. Try running in a https context.";
         }
         if (hexStrBuildup.length>0) linuxCommand="echo -n "+hexStrBuildup+" | xxd -r -p";
         linuxCommand+=" | sha256sum";
