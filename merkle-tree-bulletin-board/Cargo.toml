@@ -1,6 +1,6 @@
 [package]
 name = "merkle-tree-bulletin-board"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Andrew Conway <arcgit@greatcactus.org>"]
 edition = "2018"
 description = "A public bulletin board based upon Merkle trees."

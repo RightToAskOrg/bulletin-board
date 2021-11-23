@@ -146,3 +146,9 @@ at your option.
 Unless you explicitly state otherwise, any contribution intentionally submitted
 for inclusion in the work by you, as defined in the Apache-2.0 license, shall be
 dual licensed as above, without any additional terms or conditions.
+
+## Version log
+
+* 0.1.0 : Initial release
+ 
+ * 0.1.1 : Better tags, images in docs point to repository as relative links to images don't seem to work with crates.io
