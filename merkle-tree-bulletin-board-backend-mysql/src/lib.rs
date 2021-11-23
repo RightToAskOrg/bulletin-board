@@ -17,7 +17,7 @@ use std::convert::TryInto;
 ///
 /// This uses the schema:
 /// ```sql
-#[doc = include_str!("bin/Schema.sql")]
+#[doc = include_str!("Schema.sql")]
 /// ```
 pub struct BackendMysql<C:DerefMut<Target=Conn>> {
     pub connection : Mutex<C>,
@@ -32,6 +32,9 @@ impl <C:DerefMut<Target=Conn>> BackendMysql<C> {
         res
     }
 }
+
+/// The schema used; can be used to initialize the database.
+pub const SCHEMA : &'static str = include_str!("Schema.sql");
 
 /// Convert v into a HashValue where you know v will be a 32 byte value
 fn hash_from_value(v:Value) -> HashValue {

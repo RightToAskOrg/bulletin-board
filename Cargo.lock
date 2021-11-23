@@ -639,7 +639,7 @@ dependencies = [
  "anyhow",
  "async-std",
  "lazy_static",
- "merkle-tree-bulletin-board",
+ "merkle-tree-bulletin-board 0.1.1",
  "serde",
  "serde_json",
 ]
@@ -1600,6 +1600,21 @@ dependencies = [
 [[package]]
 name = "merkle-tree-bulletin-board"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "36b41caf9e64ba338744fa9743b36cf159013bb5b416d97318c62cc7e48ac484"
+dependencies = [
+ "anyhow",
+ "csv",
+ "hex",
+ "itertools",
+ "serde",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
+name = "merkle-tree-bulletin-board"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "csv",
@@ -1616,7 +1631,7 @@ name = "merkle-tree-bulletin-board-backend-mysql"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "merkle-tree-bulletin-board",
+ "merkle-tree-bulletin-board 0.1.0",
  "mysql",
 ]
 

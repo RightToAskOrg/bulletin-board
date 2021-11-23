@@ -40,7 +40,7 @@ fn main() -> anyhow::Result<()> {
     conn.query_drop("drop table if exists BRANCH")?;
     conn.query_drop("drop table if exists LEAF")?;
 
-    let schema = include_str!("Schema.sql");
+    let schema = merkle_tree_bulletin_board_backend_mysql::SCHEMA;
     // println!("Running schema\n{}",&schema);
 
     conn.query_drop(schema)?;
