@@ -4,8 +4,9 @@ use merkle_tree_bulletin_board::{BulletinBoardBackend, DatabaseTransaction};
 use merkle_tree_bulletin_board::hash::HashValue;
 use merkle_tree_bulletin_board::hash_history::{HashInfo, HashSource, LeafHashHistory, BranchHashHistory, RootHashHistory};
 use mysql::prelude::{Queryable};
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard};
 use std::convert::TryInto;
+use anyhow::Context;
 
 /// A mysql/mariadb backend for merkle-tree-bulletin-board.
 /// This is usable but is not extensively optimized; an expert in mysql/databases/sql could probably improve efficiency.
@@ -24,12 +25,18 @@ pub struct BackendMysql<C:DerefMut<Target=Conn>> {
 }
 
 impl <C:DerefMut<Target=Conn>> BackendMysql<C> {
-    fn query_hashes(&self, query : &'_ str) -> mysql::Result<Vec<HashValue>> {
-        let res : mysql::Result<Vec<HashValue>> = self.connection.lock().unwrap().query_map(query,|(v,)| hash_from_value(v));
+    fn get_connection_lock(&self) -> anyhow::Result<MutexGuard<'_, C>> {
+        let mut guard = self.connection.lock().unwrap();
+        if !guard.ping() { guard.reset().with_context(||"Connection to bulletin board database was lost, and could not be recovered with Conn::reset()")? }
+        Ok(guard)
+    }
+
+    fn query_hashes(&self, query : &'_ str) -> anyhow::Result<Vec<HashValue>> {
+        let res : mysql::Result<Vec<HashValue>> = self.get_connection_lock()?.query_map(query,|(v,)| hash_from_value(v));
         if let Err(e) = &res {
             println!("Had error {} running {}",e,query)
         }
-        res
+        Ok(res?)
     }
 }
 
@@ -77,7 +84,7 @@ impl <C:DerefMut<Target=Conn>> BulletinBoardBackend for BackendMysql<C> {
     }
 
     fn get_hash_info(&self, query: HashValue) -> anyhow::Result<Option<HashInfo>> {
-        let mut lock = self.connection.lock().unwrap();
+        let mut lock = self.get_connection_lock()?;
         // see if it is a leaf
         if let Some((timestamp,data,parent)) = lock.exec_first("SELECT timestamp,data,parent from LEAF WHERE hash=?",(query.0,))? {
             return Ok(Some(HashInfo{ source: HashSource::Leaf(LeafHashHistory{ timestamp: from_value(timestamp), data: from_value(data) }), parent : opt_hash_from_value(parent) }))
@@ -95,7 +102,7 @@ impl <C:DerefMut<Target=Conn>> BulletinBoardBackend for BackendMysql<C> {
     }
 
     fn publish(&mut self, transaction: &DatabaseTransaction) -> anyhow::Result<()> {
-        let mut lock = self.connection.lock().unwrap();
+        let mut lock = self.get_connection_lock()?;
         let mut tx = lock.start_transaction(TxOpts::default())?;
         for (hash,source) in &transaction.pending {
             match source {
@@ -124,7 +131,7 @@ impl <C:DerefMut<Target=Conn>> BulletinBoardBackend for BackendMysql<C> {
     }
 
     fn censor_leaf(&mut self, leaf_to_censor: HashValue) -> anyhow::Result<()> {
-        let mut lock = self.connection.lock().unwrap();
+        let mut lock = self.get_connection_lock()?;
         lock.exec_drop("update LEAF set data=null where hash=?",(leaf_to_censor.0,))?;
         Ok(())
     }
