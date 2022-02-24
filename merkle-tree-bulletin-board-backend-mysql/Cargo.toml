@@ -1,6 +1,6 @@
 [package]
 name = "merkle-tree-bulletin-board-backend-mysql"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2018"
 authors = ["Andrew Conway <arcgit@greatcactus.org>"]
 description = "A mysql backend for merkle-tree-bulletin-board."
