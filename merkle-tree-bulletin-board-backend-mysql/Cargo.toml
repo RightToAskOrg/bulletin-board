@@ -12,6 +12,6 @@ keywords = ["Merkle", "bulletin", "verifiable", "board","merkle-tree"]
 categories = ["cryptography", "data-structures"]
 
 [dependencies]
-merkle-tree-bulletin-board = "0.1"
+merkle-tree-bulletin-board = "0.2"
 anyhow = "1.0"
 mysql = "23"
