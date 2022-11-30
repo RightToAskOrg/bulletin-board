@@ -87,7 +87,7 @@ fn find_web_resources() -> PathBuf {
 }
 
 
-#[actix_rt::main]
+#[actix_web::main]
 async fn main() -> anyhow::Result<()> {
     let backend_flatfile = BackendFlatfile::new("database.csv")?;
     let backend_journal = BackendJournal::new(backend_flatfile,"journal",StartupVerification::SanityCheckAndRepairPending)?;
