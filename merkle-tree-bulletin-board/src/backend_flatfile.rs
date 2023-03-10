@@ -2,15 +2,14 @@
 
 use crate::backend_memory::BackendMemory;
 use std::path::PathBuf;
-use crate::{DatabaseTransaction, BulletinBoardBackend};
+use crate::{DatabaseTransaction, BulletinBoardBackend, BulletinBoardError};
 use csv::{WriterBuilder, ReaderBuilder, StringRecord};
 use std::io::{Write, Read};
 use crate::hash_history::{HashSource, HashInfo, Timestamp, LeafHashHistory, BranchHashHistory, RootHashHistory};
 use crate::hash::HashValue;
 use std::fs::{OpenOptions, File};
 use std::str::FromStr;
-use itertools::Itertools;
-use anyhow::anyhow;
+//use itertools::Itertools;
 use crate::deduce_journal::deduce_journal;
 
 /// Store the "database" in a flat, csv file.
@@ -27,15 +26,15 @@ pub struct BackendFlatfile {
 }
 
 impl BulletinBoardBackend for BackendFlatfile {
-    fn get_all_published_roots(&self) -> anyhow::Result<Vec<HashValue>> { self.memory.get_all_published_roots()  }
+    fn get_all_published_roots(&self) -> Result<Vec<HashValue>,BulletinBoardError> { self.memory.get_all_published_roots()  }
 
-    fn get_most_recent_published_root(&self) -> anyhow::Result<Option<HashValue>> { self.memory.get_most_recent_published_root() }
+    fn get_most_recent_published_root(&self) -> Result<Option<HashValue>,BulletinBoardError> { self.memory.get_most_recent_published_root() }
 
-    fn get_all_leaves_and_branches_without_a_parent(&self) -> anyhow::Result<Vec<HashValue>> { self.memory.get_all_leaves_and_branches_without_a_parent() }
+    fn get_all_leaves_and_branches_without_a_parent(&self) -> Result<Vec<HashValue>,BulletinBoardError> { self.memory.get_all_leaves_and_branches_without_a_parent() }
 
-    fn get_hash_info(&self, query: HashValue) -> anyhow::Result<Option<HashInfo>> { self.memory.get_hash_info(query) }
+    fn get_hash_info(&self, query: HashValue) -> Result<Option<HashInfo>,BulletinBoardError> { self.memory.get_hash_info(query) }
 
-    fn publish(&mut self, transaction: &DatabaseTransaction) -> anyhow::Result<()> {
+    fn publish(&mut self, transaction: &DatabaseTransaction) -> Result<(),BulletinBoardError> {
         let file = OpenOptions::new().append(true).create(true).open(&self.file)?;
         write_transaction_to_csv(&transaction,&file)?;
         file.sync_data()?;
@@ -43,7 +42,7 @@ impl BulletinBoardBackend for BackendFlatfile {
     }
 
     /// Horrendously inefficient - re-deduce order and write out whole file.
-    fn censor_leaf(&mut self, leaf_to_censor: HashValue) -> anyhow::Result<()> {
+    fn censor_leaf(&mut self, leaf_to_censor: HashValue) -> Result<(),BulletinBoardError> {
         self.memory.censor_leaf(leaf_to_censor)?;
         let file = OpenOptions::new().write(true).truncate(true).create(true).open(&self.file)?; // Don't append!
         for transaction in deduce_journal(&self.memory,&vec![],&self.get_all_leaves_and_branches_without_a_parent()?,true)? {
@@ -58,7 +57,7 @@ impl BackendFlatfile {
     /// Create a new flat file backed backend, storing data in the provided file.
     /// The file will be read if it exists, and used to initialize the database.
     /// When new elements are published, the file will be appended.
-    pub fn new<P>(path: P) -> anyhow::Result<Self>
+    pub fn new<P>(path: P) -> Result<Self,BulletinBoardError>
     where PathBuf: From<P>
     {
         let file = PathBuf::from(path);
@@ -182,10 +181,10 @@ impl<R: Read> TransactionIterator<R> {
     /// ```
     /// use merkle_tree_bulletin_board::backend_flatfile::TransactionIterator;
     /// use merkle_tree_bulletin_board::hash_history::{HashSource, LeafHashHistory};
-    /// use merkle_tree_bulletin_board::DatabaseTransaction;
+    /// use merkle_tree_bulletin_board::{BulletinBoardError, DatabaseTransaction};
     /// let file = "0,68c3cefbe5b64fc51713cabe524cd35f2be6e52148a0f201476f16f378cb1aee,42,The answer\n\n";
     /// let transactions = TransactionIterator::new(file.as_bytes());
-    /// let as_vec : Vec<anyhow::Result<DatabaseTransaction>> = transactions.collect();
+    /// let as_vec : Vec<Result<DatabaseTransaction,BulletinBoardError>> = transactions.collect();
     /// assert_eq!(as_vec.len(),1);
     /// let trans1 : &DatabaseTransaction = as_vec[0].as_ref().unwrap();
     /// assert_eq!(trans1.pending.len(),1);
@@ -202,34 +201,34 @@ impl<R: Read> TransactionIterator<R> {
 
 
 impl<'r, R: Read> Iterator for TransactionIterator<R> {
-    type Item = anyhow::Result<DatabaseTransaction>;
+    type Item = Result<DatabaseTransaction,BulletinBoardError>;
 
-    fn next(&mut self) -> Option<anyhow::Result<DatabaseTransaction>> {
-        fn parse_record(record:&StringRecord) -> anyhow::Result<(HashValue,HashSource)> {
+    fn next(&mut self) -> Option<Result<DatabaseTransaction,BulletinBoardError>> { // or maybe not?
+        fn parse_record(record:&StringRecord) -> Result<(HashValue,HashSource),BulletinBoardError> {
             let hash = match record.get(1) {
                 Some(s) => HashValue::from_str(s)?,
-                None => return Err(anyhow!("No hash")),
+                None => return Err(BulletinBoardError::BackendInconsistentError(format!("No hash"))),
             };
             let history = match record.get(0) {
                 Some("0") => { // leaf
-                    if record.len()<3 || record.len()>4 { return Err(anyhow!("Leaf node should have 3 or 4 fields")); }
+                    if record.len()<3 || record.len()>4 { return Err(BulletinBoardError::BackendInconsistentError(format!("Leaf node should have 3 or 4 fields"))); }
                     HashSource::Leaf(LeafHashHistory{ timestamp : Timestamp::from_str(record.get(2).unwrap())?, data: record.get(3).map(|e|e.to_string()) })
                 }
                 Some("1") => { // branch
-                    if record.len()!=4 { return Err(anyhow!("Branch node should have 4 fields")); }
+                    if record.len()!=4 { return Err(BulletinBoardError::BackendInconsistentError(format!("Branch node should have 4 fields"))); }
                     HashSource::Branch(BranchHashHistory{ left : HashValue::from_str(record.get(2).unwrap())?, right: HashValue::from_str(record.get(3).unwrap())?})
                 }
                 Some("2") => { // published
-                    if record.len()<4 { return Err(anyhow!("Publish node should have at least 4 fields")); }
+                    if record.len()<4 { return Err(BulletinBoardError::BackendInconsistentError(format!("Publish node should have at least 4 fields"))); }
                     let mut elements = vec![];
-                    for contained_hash in record.iter().dropping(4) {
+                    for contained_hash in record.iter().skip(4) {
                         elements.push(HashValue::from_str(contained_hash)?);
                     }
                     let prior_str = record.get(3).unwrap();
                     let prior = if prior_str.is_empty() { None } else { Some(HashValue::from_str(prior_str)?)};
                     HashSource::Root(RootHashHistory{ timestamp : Timestamp::from_str(record.get(2).unwrap())?, prior, elements })
                 }
-                _ => return Err(anyhow!("Invalid type specifier")),
+                _ => return Err(BulletinBoardError::BackendInconsistentError(format!("Invalid type specifier"))),
             };
             Ok((hash,history))
         }
@@ -243,7 +242,7 @@ impl<'r, R: Read> Iterator for TransactionIterator<R> {
             // work around is to do read ahead
             let line_before_reading_record = self.csv_reader.position().line();
             match self.csv_reader.read_record(&mut self.record) {
-                Err(err) => return Some(Err(anyhow::Error::from(err))),
+                Err(err) => return Some(Err(BulletinBoardError::BackendIOError(err.to_string()))),
                 Ok(true) => {
                     // println!("Read record with {} entries line {} byte {} self line {} byte {} before reading line {}",self.record.len(),self.record.position().unwrap().line(),self.record.position().unwrap().byte(),self.csv_reader.position().line(),self.csv_reader.position().byte(),line_before_reading_record);
                     if self.record.is_empty() { return Some(Ok(transaction)) } // This never triggers as blank records are silently skipped.
@@ -270,7 +269,7 @@ impl<'r, R: Read> Iterator for TransactionIterator<R> {
                     }
                     // println!("EOF record with {} entries line {} byte {} self line {} byte {}",self.record.len(),self.record.position().unwrap().line(),self.record.position().unwrap().byte(),self.csv_reader.position().line(),self.csv_reader.position().byte());
                     // println!("transaction.pending has {} entries, the first one being for {}",transaction.pending.len(),transaction.pending[0].0);
-                    return Some(Err(anyhow!("transaction starting at line {} with hash {} not complete",self.record.position().unwrap().line(),transaction.pending[0].0)));
+                    return Some(Err(BulletinBoardError::BackendInconsistentError(format!("transaction starting at line {} with hash {} not complete",self.record.position().unwrap().line(),transaction.pending[0].0))));
                 }
             }
         }

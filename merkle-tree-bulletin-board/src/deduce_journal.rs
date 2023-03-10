@@ -1,8 +1,7 @@
-use crate::{BulletinBoardBackend, DatabaseTransaction};
+use crate::{BulletinBoardBackend, BulletinBoardError, DatabaseTransaction};
 use crate::hash::HashValue;
 use crate::growing_forest::{GrowingForest, HashAndDepth};
 use crate::hash_history::{HashInfo, HashSource, RootHashHistory};
-use anyhow::anyhow;
 use std::collections::HashMap;
 
 /// Deduce the set of transactions needed to go from state 'from' to state 'to'
@@ -78,7 +77,7 @@ use std::collections::HashMap;
 /// assert_eq!(journal[6].pending.len(),1); // published root
 /// ```
 
-pub fn deduce_journal(board:&impl BulletinBoardBackend,from:&Vec<HashValue>,to:&Vec<HashValue>,include_published_roots:bool) -> anyhow::Result<Vec<DatabaseTransaction>> {
+pub fn deduce_journal(board:&impl BulletinBoardBackend,from:&Vec<HashValue>,to:&Vec<HashValue>,include_published_roots:bool) -> Result<Vec<DatabaseTransaction>,BulletinBoardError> {
     let mut res = vec![];
     let from_last = GrowingForest::new(from,|h|board.left_depth(h))?.last();
     let mut work = GrowingForest::new(to,|h|board.left_depth(h))?;
@@ -98,7 +97,7 @@ pub fn deduce_journal(board:&impl BulletinBoardBackend,from:&Vec<HashValue>,to:&
                         }
                     }
                 }
-                _ => return Err(anyhow!("Claimed root {} is not a root",root))
+                _ => return Err(BulletinBoardError::BackendInconsistentError(format!("Claimed root {} is not a root",root)))
             }
         }
         check
@@ -114,7 +113,7 @@ pub fn deduce_journal(board:&impl BulletinBoardBackend,from:&Vec<HashValue>,to:&
         work.last() != from_last // the actual condition of the while loop.
           } {
         if let Some(HashAndDepth{ hash, depth }) = work.forest.pop() {
-            match board.get_hash_info(hash)?.ok_or_else(||anyhow!("Hash {} does not have any info",hash))?.source {
+            match board.get_hash_info(hash)?.ok_or_else(||BulletinBoardError::BackendInconsistentError(format!("Hash {} does not have any info",hash)))?.source {
                 HashSource::Leaf(history) => { // undo the leaf. This is the start of a transaction.
                     let mut transaction = DatabaseTransaction::default();
                     transaction.pending.push((hash,HashSource::Leaf(history)));
@@ -126,22 +125,22 @@ pub fn deduce_journal(board:&impl BulletinBoardBackend,from:&Vec<HashValue>,to:&
                     work.forest.push(HashAndDepth{hash:history.right,depth:depth-1 });
                     current_trans.push((hash,HashSource::Branch(history)));
                 }
-                HashSource::Root(_) => { return Err(anyhow!("Should not have a root {} in a growing forest",hash)); }
+                HashSource::Root(_) => { return Err(BulletinBoardError::BackendInconsistentError(format!("Should not have a root {} in a growing forest",hash))); }
             }
-        } else { return Err(anyhow!("Can't get from {:#?} to {:#?}",from,to));}
+        } else { return Err(BulletinBoardError::BackendInconsistentError(format!("Can't get from {:#?} to {:#?}",from,to)));}
     }
-    if !current_trans.is_empty() { return Err(anyhow!("Initial state from starts in the middle of branch creation : {:#?} ",from));}
+    if !current_trans.is_empty() { return Err(BulletinBoardError::BackendInconsistentError(format!("Initial state from starts in the middle of branch creation : {:#?} ",from)));}
     while let Some(e) = at_very_start.pop() { res.push(e); }
     res.reverse();
     Ok(res)
 }
 
 /// Get the hashes for the given root, should it exist. If not, empty vec.
-fn get_hashes_for_optional_root(board:&impl BulletinBoardBackend,root:Option<HashValue>) -> anyhow::Result<Vec<HashValue>> {
+fn get_hashes_for_optional_root(board:&impl BulletinBoardBackend,root:Option<HashValue>) -> Result<Vec<HashValue>,BulletinBoardError> {
     if let Some(root) = root {
         match board.get_hash_info(root)? {
             Some(HashInfo{source:HashSource::Root(RootHashHistory{ elements,.. }),..}) => Ok(elements),
-            _ => Err(anyhow!("{} is not a root",root))
+            _ => Err(BulletinBoardError::BackendInconsistentError(format!("{} is not a root",root)))
         }
     } else { Ok(vec![]) }
 }
@@ -166,7 +165,7 @@ fn get_hashes_for_optional_root(board:&impl BulletinBoardBackend,root:Option<Has
 /// assert_eq!(journal[0].pending.len(),3); // publish "D", make a tree with "C", make a tree with "AB".
 /// assert_eq!(journal[0].pending[0].0,d); // publish D
 /// ```
-pub fn deduce_journal_last_published_root_to_present(board:&impl BulletinBoardBackend) -> anyhow::Result<Vec<DatabaseTransaction>> {
+pub fn deduce_journal_last_published_root_to_present(board:&impl BulletinBoardBackend) -> Result<Vec<DatabaseTransaction>,BulletinBoardError> {
     deduce_journal(board,&get_hashes_for_optional_root(board,board.get_most_recent_published_root()?)?,&board.get_all_leaves_and_branches_without_a_parent()?,false)
 }
 
@@ -193,14 +192,14 @@ pub fn deduce_journal_last_published_root_to_present(board:&impl BulletinBoardBa
 /// assert_eq!(journal[2].pending.len(),1); // publish "C"
 /// assert_eq!(journal[3].pending.len(),1); // root
 /// ```
-pub fn deduce_journal_from_prior_root_to_given_root(board:&impl BulletinBoardBackend,root:HashValue) -> anyhow::Result<Vec<DatabaseTransaction>> {
+pub fn deduce_journal_from_prior_root_to_given_root(board:&impl BulletinBoardBackend,root:HashValue) -> Result<Vec<DatabaseTransaction>,BulletinBoardError> {
     match board.get_hash_info(root)? {
         Some(HashInfo{source: HashSource::Root(RootHashHistory{ elements,prior,timestamp }),..}) => {
             let mut journal = deduce_journal(board,&get_hashes_for_optional_root(board,prior)?,&elements,false)?;
             journal.push(DatabaseTransaction::singleton(root,HashSource::Root(RootHashHistory{ elements,prior,timestamp })));
             Ok(journal)
         },
-        _ => Err(anyhow!("{} is not a root",root))
+        _ => Err(BulletinBoardError::BackendInconsistentError(format!("{} is not a root",root)))
     }
 }
 

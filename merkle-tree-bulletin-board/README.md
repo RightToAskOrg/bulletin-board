@@ -152,3 +152,5 @@ dual licensed as above, without any additional terms or conditions.
 * 0.1.0 : Initial release
  
  * 0.1.1 : Better tags, images in docs point to repository as relative links to images don't seem to work with crates.io
+
+* 0.3 : Better error handling. Replace "anyhow" errors with more useful enum errors (API change). Removed itertools & anyhow dependency.

@@ -5,8 +5,7 @@
 use crate::hash::HashValue;
 use crate::hash_history::BranchHashHistory;
 use serde::{Serialize,Deserialize};
-use anyhow::anyhow;
-use crate::{BulletinBoardBackend, DatabaseTransaction};
+use crate::{BulletinBoardBackend, BulletinBoardError, DatabaseTransaction};
 
 #[derive(Debug,Clone,Serialize,Deserialize)]
 /// A hash and its depth
@@ -44,7 +43,7 @@ pub struct GrowingForest {
     pub(crate) forest: Vec<HashAndDepth>,
 }
 
-fn merge_hashes<B:BulletinBoardBackend>(left:HashValue,right:HashValue,backend:&B,transaction:&mut DatabaseTransaction) -> anyhow::Result<HashValue> {
+fn merge_hashes<B:BulletinBoardBackend>(left:HashValue,right:HashValue,backend:&B,transaction:&mut DatabaseTransaction) -> Result<HashValue,BulletinBoardError> {
     let history = BranchHashHistory{ left, right };
     let new_hash = history.compute_hash();
     if let Some(hash_collision) = transaction.get_hash_info_completely(backend,new_hash)? {
@@ -53,7 +52,7 @@ fn merge_hashes<B:BulletinBoardBackend>(left:HashValue,right:HashValue,backend:&
         let new_hash = history.compute_hash();
         if let Some(hash_collision) = transaction.get_hash_info_completely(backend,new_hash)? {
             println!("Time to enter the lottery! You have just found a hash collision between {:?} and {:?} as well. I am sure the program is buggy. Giving up!",&hash_collision,&history);
-            Err(anyhow!("Multiple hash clashes indicates that the program is buggy or you are the unluckiest person in all the universes everywhere. I think it is the former."))
+            Err(BulletinBoardError::MultipleHashClashes)
         } else { // no hash collision, all is good. Should go here 99.99999999999999999999999999999..% of the remaining time. Except the first collision was probably a bug, so probably won't help.
             transaction.add_branch_hash(new_hash,history);
             Ok(new_hash)
@@ -66,7 +65,7 @@ fn merge_hashes<B:BulletinBoardBackend>(left:HashValue,right:HashValue,backend:&
 
 impl GrowingForest {
     /// Merge the last two elements of this tree.
-    fn merge_last_two(&mut self,backend:&impl BulletinBoardBackend,transaction:&mut DatabaseTransaction) -> anyhow::Result<()> {
+    fn merge_last_two(&mut self,backend:&impl BulletinBoardBackend,transaction:&mut DatabaseTransaction) -> Result<(),BulletinBoardError> {
         let right = self.forest.pop().unwrap();
         let left = self.forest.pop().unwrap();
         match merge_hashes(left.hash,right.hash,backend,transaction) {
@@ -82,7 +81,7 @@ impl GrowingForest {
         }
     }
     /// Add the given hash value as a leaf to this tree collection.
-    pub fn add_leaf(&mut self, hash:HashValue, backend:&impl BulletinBoardBackend, transaction:&mut DatabaseTransaction) -> anyhow::Result<()> {
+    pub fn add_leaf(&mut self, hash:HashValue, backend:&impl BulletinBoardBackend, transaction:&mut DatabaseTransaction) -> Result<(),BulletinBoardError> {
         self.forest.push(HashAndDepth { hash, depth: 0 });
         while self.forest.len()>=2 && self.forest[self.forest.len()-1].depth==self.forest[self.forest.len()-2].depth {
             self.merge_last_two(backend,transaction)?;
@@ -95,7 +94,7 @@ impl GrowingForest {
     }
 
     /// Make a new growing forest from an (unordered) list of hash values and a function from hash value to depth.
-    pub fn new<F:Fn(HashValue)->anyhow::Result<usize>>(hashes:&Vec<HashValue>,get_depth:F) -> anyhow::Result<Self> {
+    pub fn new<F:Fn(HashValue)->Result<usize,BulletinBoardError>>(hashes:&Vec<HashValue>,get_depth:F) -> Result<Self,BulletinBoardError> {
         let mut pending : Vec<HashAndDepth> = Vec::default();
         for hash in hashes {
             pending.push(HashAndDepth{hash:*hash,depth:get_depth(*hash)?});

@@ -1,6 +1,6 @@
 [package]
 name = "merkle-tree-bulletin-board"
-version = "0.2.0"
+version = "0.3.0"
 authors = ["Andrew Conway <arcgit@greatcactus.org>"]
 edition = "2021"
 description = "A public bulletin board based upon Merkle trees."
@@ -18,8 +18,7 @@ serde =  { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 sha2 = "0.10"
 csv = "1.1"
-itertools = "0.10"
-anyhow = "1.0"
+thiserror = "1.0"
 hex = "0.4"
 
 [dev-dependencies]

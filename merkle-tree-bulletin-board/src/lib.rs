@@ -62,12 +62,13 @@ pub mod deduce_journal;
 pub mod verifier;
 
 use crate::growing_forest::GrowingForest;
-use crate::hash::HashValue;
-use anyhow::anyhow;
-use crate::hash_history::{HashInfo, FullProof, HashSource, BranchHashHistory, RootHashHistory, LeafHashHistory, timestamp_now, HashInfoWithHash};
+use crate::hash::{FromHashValueError, HashValue};
+use crate::hash_history::{HashInfo, FullProof, HashSource, BranchHashHistory, RootHashHistory, LeafHashHistory, timestamp_now, HashInfoWithHash, Timestamp};
 use std::time::Duration;
 use std::collections::HashSet;
 use std::iter::FromIterator;
+use std::num::ParseIntError;
+use serde::{Serialize,Deserialize};
 
 /// This is the main API to the bulletin board library. This represents an entire bulletin board.
 /// You provide a backend of type [BulletinBoardBackend] (typically an indexed database),
@@ -210,6 +211,55 @@ pub struct BulletinBoard<B:BulletinBoardBackend> {
     current_forest: Option<GrowingForest>,
 }
 
+/// Possible things that could go wrong during a Bulletin Board operation.
+#[derive(Debug,Clone,Serialize,Deserialize,Eq,PartialEq,thiserror::Error)]
+pub enum BulletinBoardError {
+    #[error("Identical data has already been submitted very recently to the bulletin board")]
+    IdenticalDataAlreadySubmitted,
+    #[error("Could not initialize bulletin board from the database")]
+    CouldNotInitializeFromDatabase,
+    #[error("The published root has no information in the backend")]
+    PublishedRootHasNoInfo,
+    #[error("A new published root was ordered immediately after already publishing one, with no new data")]
+    PublishingNewRootInstantlyAfterLastRoot,  // if ordering a new root to be published with same timestamp and no new data.
+    #[error("The provided hash value does not correspond to a node")]
+    NoSuchHash,
+    #[error("The proof chain is missing node {0}")]
+    ProofChainCorruptMissingPublishedNode(HashValue),
+    #[error("The published root {0} is not actually a root node")]
+    PublishedRootIsNotARoot(HashValue),
+    #[error("Multiple hash clashes indicates that the program is buggy or you are the unluckiest person in all the universes everywhere. I think it is the former")]
+    MultipleHashClashes,
+    #[error("Can only censor leaves")]
+    CanOnlyCensorLeaves,
+    #[error("The bulletin board backend is inconsistent or corrupt : {0}")]
+    BackendInconsistentError(String),
+    #[error("The bulletin board backend has an IO Error : {0}")]
+    BackendIOError(String),
+    #[error("The bulletin board backend had an error parsing a value : {0}")]
+    BackendParsingError(String),
+    #[error("system time clock is not available")]
+    ClockError,
+}
+
+
+impl From<std::io::Error> for BulletinBoardError {
+    fn from(value: std::io::Error) -> Self {
+        BulletinBoardError::BackendIOError(value.to_string())
+    }
+}
+impl From<FromHashValueError> for BulletinBoardError {
+    fn from(value: FromHashValueError) -> Self {
+        BulletinBoardError::BackendParsingError(value.to_string())
+    }
+}
+
+impl From<ParseIntError> for BulletinBoardError {
+    fn from(value: ParseIntError) -> Self {
+        BulletinBoardError::BackendParsingError(value.to_string())
+    }
+}
+
 /// Adding one element to a set to be committed may result in a variety of elements being produced.
 /// A database may have the ability to do transactions, in which case this can be made safer by committing
 /// all the modifications needed by a single API call so that the database doesn't have dangling elements.
@@ -228,7 +278,7 @@ impl DatabaseTransaction {
 
     fn get_hash_info(&self,query:HashValue) -> Option<HashSource> { self.pending.iter().find(|(hash,_)| *hash == query).map(|(_,source)|source.clone()) }
     /// check for a hash collision by looking up both this and the database backend.
-    fn get_hash_info_completely(&self,backend:&impl BulletinBoardBackend,query:HashValue) -> anyhow::Result<Option<HashSource>> {
+    fn get_hash_info_completely(&self,backend:&impl BulletinBoardBackend,query:HashValue) -> Result<Option<HashSource>,BulletinBoardError> {
         if let Some(info) = backend.get_hash_info(query)? { Ok(Some(info.source)) }
         else { Ok(self.get_hash_info(query)) }
     }
@@ -244,27 +294,27 @@ impl DatabaseTransaction {
 /// this trait can be used.
 pub trait BulletinBoardBackend {
     /// Get all published roots, for all time.
-    fn get_all_published_roots(&self) -> anyhow::Result<Vec<HashValue>>;
+    fn get_all_published_roots(&self) -> Result<Vec<HashValue>,BulletinBoardError>;
     /// Get the most recently published root, should it exist.
-    fn get_most_recent_published_root(&self) -> anyhow::Result<Option<HashValue>>;
+    fn get_most_recent_published_root(&self) -> Result<Option<HashValue>,BulletinBoardError>;
     /// Get all leaves and branches without a parent branch. Published nodes do not count as a parent.
     /// This is used to recompute the starting state.
-    fn get_all_leaves_and_branches_without_a_parent(&self) -> anyhow::Result<Vec<HashValue>>;
+    fn get_all_leaves_and_branches_without_a_parent(&self) -> Result<Vec<HashValue>,BulletinBoardError>;
     /// given a hash, get information about what it represents, if anything.
-    fn get_hash_info(&self, query:HashValue) -> anyhow::Result<Option<HashInfo>>;
+    fn get_hash_info(&self, query:HashValue) -> Result<Option<HashInfo>,BulletinBoardError>;
 
     /// Store a transaction in the database.
-    fn publish(&mut self,transaction:&DatabaseTransaction) -> anyhow::Result<()>;
+    fn publish(&mut self,transaction:&DatabaseTransaction) -> Result<(),BulletinBoardError>;
 
     /// Remove the text associated with a leaf.
-    fn censor_leaf(&mut self,leaf_to_censor:HashValue) -> anyhow::Result<()>;
+    fn censor_leaf(&mut self,leaf_to_censor:HashValue) -> Result<(),BulletinBoardError>;
 
     /// Get the depth of a subtree rooted at a given leaf or branch node) by following elements down the left side of each branch.
     /// A leaf node has depth 0.
     /// A branch node has depth 1 or more.
     ///
     /// The default implementation is to repeatedly call get_hash_info depth times; this is usually adequate as this is only used during startup.
-    fn left_depth(&self,hash:HashValue) -> anyhow::Result<usize> {
+    fn left_depth(&self,hash:HashValue) -> Result<usize,BulletinBoardError> {
         let mut res = 0;
         let mut hash = hash;
         loop {
@@ -286,16 +336,20 @@ pub trait BulletinBoardBackend {
     /// * Sort, highest first.
     ///
     /// The default implementation is usually adequate as it is only used during startup.
-    fn compute_current_forest(&self) -> anyhow::Result<GrowingForest> {
+    fn compute_current_forest(&self) -> Result<GrowingForest,BulletinBoardError> {
         GrowingForest::new(&self.get_all_leaves_and_branches_without_a_parent()?,|h|self.left_depth(h))
     }
 
 }
 
+fn bb_timestamp_now() -> Result<Timestamp, BulletinBoardError> {
+    timestamp_now().map_err(|_|BulletinBoardError::ClockError)
+}
+
 impl <B:BulletinBoardBackend> BulletinBoard<B> {
 
     /// called when the current_forest field is corrupt. Make it valid, if possible.
-    fn reload_current_forest(&mut self) -> anyhow::Result<()> {
+    fn reload_current_forest(&mut self) -> Result<(),BulletinBoardError> {
         match self.backend.compute_current_forest() {
             Ok(f) => {
                 self.current_forest = Some(f);
@@ -310,22 +364,22 @@ impl <B:BulletinBoardBackend> BulletinBoard<B> {
 
 
     /// Helper used in submit_leaf to wrap errors so that it is easy to reload the current forest if a recoverable error (e.g. resubmitted data) occurs during this step.
-    fn submit_leaf_work(&mut self,data:String) -> anyhow::Result<HashValue> {
-        let history = LeafHashHistory{ timestamp: timestamp_now()?, data: Some(data) };
+    fn submit_leaf_work(&mut self,data:String) -> Result<HashValue,BulletinBoardError> {
+        let history = LeafHashHistory{ timestamp: bb_timestamp_now()?, data: Some(data) };
         let new_hash = history.compute_hash().unwrap();
         match self.backend.get_hash_info(new_hash)? {
             Some(HashInfo{source:HashSource::Leaf(other_history), .. }) if other_history==history => {
-                Err(anyhow!("You submitted the same data as already present data"))
+                Err(BulletinBoardError::IdenticalDataAlreadySubmitted)
             }
-            Some(hash_collision) => {
-                println!("Time to enter the lottery! Actually you have probably won without entering. You have just done a submission and found a hash collision between {:?} and {:?}",&hash_collision,&history);
+            Some(hash_collision) => { // The below case is absurdly unlikely to happen.
+                eprintln!("Time to enter the lottery! Actually you have probably won without entering. You have just done a submission and found a hash collision between {:?} and {:?}",&hash_collision,&history);
                 std::thread::sleep(Duration::from_secs(1)); // work around - wait a second and retry, with a new timestamp.
                 self.submit_leaf_work(history.data.unwrap())
             }
             _ =>  { // no hash collision, all is good. Should go here 99.99999999999999999999999999999..% of the time.
                 let mut transaction = DatabaseTransaction::default();
                 transaction.add_leaf_hash(new_hash,history);
-                self.current_forest.as_mut().ok_or_else(||anyhow!("Could not initialize from database"))?.add_leaf(new_hash, &self.backend, &mut transaction)?;
+                self.current_forest.as_mut().ok_or_else(||BulletinBoardError::CouldNotInitializeFromDatabase)?.add_leaf(new_hash, &self.backend, &mut transaction)?;
                 self.backend.publish(&transaction)?;
                 Ok(new_hash)
             }
@@ -345,22 +399,22 @@ impl <B:BulletinBoardBackend> BulletinBoard<B> {
     /// board.submit_leaf("A").unwrap();
     /// // the board now has one leaf!
     ///```
-    pub fn submit_leaf(&mut self,data:&str) -> anyhow::Result<HashValue> {
+    pub fn submit_leaf(&mut self,data:&str) -> Result<HashValue,BulletinBoardError> {
         let res = self.submit_leaf_work(data.to_string());
         if res.is_err() { self.reload_current_forest()? }
         res
     }
 
     /// Create a new bulletin board from a backend.
-    pub fn new(backend:B) -> anyhow::Result<Self> {
+    pub fn new(backend:B) -> Result<Self,BulletinBoardError> {
         let mut res = BulletinBoard { backend, current_forest : None };
         res.reload_current_forest()?;
         Ok(res)
     }
 
     /// Get a valid forest reference, or an error.
-    fn forest_or_err(&self) -> anyhow::Result<&GrowingForest> {
-        self.current_forest.as_ref().ok_or_else(||anyhow!("Could not initialize from database"))
+    fn forest_or_err(&self) -> Result<&GrowingForest,BulletinBoardError> {
+        self.current_forest.as_ref().ok_or_else(||BulletinBoardError::CouldNotInitializeFromDatabase)
     }
 
     /// Get the current published head that everyone knows. Everyone who is paying attention, that is. And who can remember 256 bits of gibberish.
@@ -379,7 +433,7 @@ impl <B:BulletinBoardBackend> BulletinBoard<B> {
     /// let hash2 = board.order_new_published_root().unwrap();
     /// assert_eq!(Some(hash2),board.get_most_recent_published_root().unwrap());
     ///```
-    pub fn get_most_recent_published_root(&self) -> anyhow::Result<Option<HashValue>> {
+    pub fn get_most_recent_published_root(&self) -> Result<Option<HashValue>,BulletinBoardError> {
         self.backend.get_most_recent_published_root()
     }
 
@@ -399,7 +453,7 @@ impl <B:BulletinBoardBackend> BulletinBoard<B> {
     /// let hash2 = board.order_new_published_root().unwrap();
     /// assert_eq!(vec![hash1,hash2],board.get_all_published_roots().unwrap());
     ///```
-    pub fn get_all_published_roots(&self) -> anyhow::Result<Vec<HashValue>> {
+    pub fn get_all_published_roots(&self) -> Result<Vec<HashValue>,BulletinBoardError> {
         self.backend.get_all_published_roots()
     }
 
@@ -420,12 +474,12 @@ impl <B:BulletinBoardBackend> BulletinBoard<B> {
     /// assert_eq!(1,board.get_parentless_unpublished_hash_values().unwrap().len());
     ///   // will be the tree formed from "A" and "B", not "B" itself.
     ///```
-    pub fn get_parentless_unpublished_hash_values(&self) -> anyhow::Result<Vec<HashValue>> {
+    pub fn get_parentless_unpublished_hash_values(&self) -> Result<Vec<HashValue>,BulletinBoardError> {
         let mut currently_used : Vec<HashValue> = self.forest_or_err()?.get_subtrees();
         if let Some(published_root) = self.backend.get_most_recent_published_root()? {
             if let Some(HashInfo{source:HashSource::Root(history),..}) = self.backend.get_hash_info(published_root)? {
                 currently_used.retain(|h|!history.elements.contains(h)) // remove already published elements.
-            } else { return Err(anyhow!("The published root has has no info")) }
+            } else { return Err(BulletinBoardError::PublishedRootHasNoInfo) }
         }
         Ok(currently_used)
     }
@@ -433,12 +487,12 @@ impl <B:BulletinBoardBackend> BulletinBoard<B> {
     /// Request a new published root. This will contain a reference to each tree in
     /// the current forest. That is, each leaf or branch node that doesn't have a parent.
     /// This will return an error if called twice in rapid succession (same timestamp) with nothing added in the meantime, as it would otherwise produce the same hash, and is almost certainly not what was intended anyway.
-    pub fn order_new_published_root(&mut self) -> anyhow::Result<HashValue> {
-        let history = RootHashHistory { timestamp: timestamp_now()?, elements: self.forest_or_err()?.get_subtrees(), prior : self.get_most_recent_published_root()? };
+    pub fn order_new_published_root(&mut self) -> Result<HashValue,BulletinBoardError> {
+        let history = RootHashHistory { timestamp: bb_timestamp_now()?, elements: self.forest_or_err()?.get_subtrees(), prior : self.get_most_recent_published_root()? };
         let new_hash = history.compute_hash();
         match self.backend.get_hash_info(new_hash)? {
             Some(HashInfo{source:HashSource::Root(other_history), .. }) if other_history==history => {
-                Err(anyhow!("You tried to publish twice rapidly with no new data. Shame on you, you spammer."))
+                Err(BulletinBoardError::PublishingNewRootInstantlyAfterLastRoot)
             }
             Some(hash_collision) => {
                 println!("Time to enter the lottery! Actually you have probably won without entering. You have just done a submission and found a hash collision between {:?} and {:?}",&hash_collision,&history);
@@ -472,8 +526,8 @@ impl <B:BulletinBoardBackend> BulletinBoard<B> {
     ///         _ => panic!("Not a leaf"),
     /// }
     /// ```
-    pub fn get_hash_info(&self, query:HashValue) -> anyhow::Result<HashInfo> {
-        self.backend.get_hash_info(query)?.ok_or_else(||anyhow!("No such result"))
+    pub fn get_hash_info(&self, query:HashValue) -> Result<HashInfo,BulletinBoardError> {
+        self.backend.get_hash_info(query)?.ok_or_else(||BulletinBoardError::NoSuchHash)
     }
 
 
@@ -511,21 +565,21 @@ impl <B:BulletinBoardBackend> BulletinBoard<B> {
     ///     HashSource::Branch(BranchHashHistory{left: hash_a,right: hash_b}));
     /// assert_eq!(verify_proof("a",root,&proof),None); // A thorough check.
     /// ```
-   pub fn get_proof_chain(&self,query:HashValue) -> anyhow::Result<FullProof> {
+   pub fn get_proof_chain(&self,query:HashValue) -> Result<FullProof,BulletinBoardError> {
         let mut chain = vec![];
         let mut node = query;
         let mut published_root : Option<HashInfoWithHash> =  {
             if let Ok(Some(published_root_hash)) = self.get_most_recent_published_root() {
                 if let Ok(node_info) = self.get_hash_info(published_root_hash) {
                     Some(node_info.add_hash(published_root_hash))
-                } else { return Err(anyhow!("The server chain has become corrupt! The published node {} does not exist",node)); } // There is a break in the logic!!!
+                } else { return Err(BulletinBoardError::ProofChainCorruptMissingPublishedNode(published_root_hash)); } // There is a break in the logic!!!
             } else {None }
         };
         let published: HashSet<HashValue> = {
             if let Some(info) = &published_root {
                 if let HashSource::Root(history) = &info.source {
                     HashSet::from_iter(history.elements.iter().cloned())
-                } else { return Err(anyhow!("The server chain has become corrupt! The published node {} has the wrong history",node)); } // There is a break in the logic!!!
+                } else { return Err(BulletinBoardError::PublishedRootIsNotARoot(node)); } // There is a break in the logic!!!
             } else { HashSet::default() }
         };
         loop {
@@ -540,7 +594,7 @@ impl <B:BulletinBoardBackend> BulletinBoard<B> {
                     },
                 }
             } else {
-                return Err(if query==node { anyhow!("The requested hash is not valid")} else {anyhow!("The server chain has become corrupt! The node {} does not exist",node)});
+                return Err(if query==node { BulletinBoardError::NoSuchHash } else { BulletinBoardError::ProofChainCorruptMissingPublishedNode(node)});
             } // There is a break in the logic!!!
         }
         Ok(FullProof{ chain, published_root })
@@ -591,7 +645,7 @@ impl <B:BulletinBoardBackend> BulletinBoard<B> {
     ///         _ => panic!("Not a censored leaf"),
     /// }
     /// ```
-    pub fn censor_leaf(&mut self,leaf_to_censor:HashValue) -> anyhow::Result<()> {
+    pub fn censor_leaf(&mut self,leaf_to_censor:HashValue) -> Result<(),BulletinBoardError> {
         self.backend.censor_leaf(leaf_to_censor)
     }
 }

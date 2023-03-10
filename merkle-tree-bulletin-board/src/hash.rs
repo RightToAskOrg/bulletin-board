@@ -6,7 +6,6 @@ use serde::de::Visitor;
 use std::fmt;
 use std::fmt::{Display, Formatter, Debug};
 use std::str::FromStr;
-use anyhow::anyhow;
 
 /// The error type for decoding a string into HashValue.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -19,8 +18,8 @@ pub enum FromHashValueError {
 
 impl std::error::Error for FromHashValueError {}
 
-impl fmt::Display for FromHashValueError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+impl Display for FromHashValueError {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match *self {
             FromHashValueError::InvalidHexString => write!(f, "Invalid hex string"),
             FromHashValueError::InvalidLength => write!(f, "Nash length should be 64 hex characters"),
@@ -84,7 +83,7 @@ struct HashValueVisitor;
 impl<'de> Visitor<'de> for HashValueVisitor {
     type Value = HashValue;
 
-    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+    fn expecting(&self, formatter: &mut Formatter) -> fmt::Result {
         formatter.write_str("a 64 character hexadecimal string")
     }
 
@@ -96,11 +95,12 @@ impl<'de> Visitor<'de> for HashValueVisitor {
     }
 }
 
-pub fn parse_string_to_hash_vec(s:&str) -> anyhow::Result<Vec<HashValue>> {
+/// Parse a string of semicolon separated hash values
+pub fn parse_string_to_hash_vec(s:&str) -> Result<Vec<HashValue>,FromHashValueError> {
     let mut res = vec![];
     if s.len()>0 {
         for s_hash in s.split(';') {
-            res.push(HashValue::from_str(s_hash).map_err(|msg|anyhow!("Invalid hex string {} in {} : {}",s_hash,s,msg))?)
+            res.push(HashValue::from_str(s_hash)?)
         }
     }
     Ok(res)

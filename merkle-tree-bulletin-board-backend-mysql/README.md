@@ -67,3 +67,5 @@ dual licensed as above, without any additional terms or conditions.
 ## Version notes
 
 0.2: Change of mysql version in dependencies. Old version had a transitive dependency funty 1.2 that was yanked.
+
+0.3: Change to match 0.3 bulletin board - better error handling (API change for errors).

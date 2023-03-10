@@ -26,7 +26,7 @@ use merkle_tree_bulletin_board::hash::HashValue;
 /// as the password, apart from any other problem, there are bots that sift through
 /// github looking for such hard coded credentials.
 ///
-fn main() -> anyhow::Result<()> {
+fn main() -> Result<(),mysql::Error> {
     // The below string is NOT the actual credentials and should be changed prior to use.
     // This is NOT how it should be run in production. This is just a demo.
     // Our password is NOT ThisShouldBeReplacedByAPassword.
@@ -165,8 +165,8 @@ fn main() -> anyhow::Result<()> {
 
     println!("Censoring the evil A.");
     // test censorship
-    board.censor_leaf(hash_A)?;
-    match board.get_hash_info(hash_A)?.source {
+    board.censor_leaf(hash_A).unwrap();
+    match board.get_hash_info(hash_A).unwrap().source {
         HashSource::Leaf(LeafHashHistory{ data : None, .. }) => {}
         _ => panic!("hash_A should be a leaf with no data!"),
     }

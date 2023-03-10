@@ -1,6 +1,6 @@
 [package]
 name = "merkle-tree-bulletin-board-backend-mysql"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 authors = ["Andrew Conway <arcgit@greatcactus.org>"]
 description = "A mysql backend for merkle-tree-bulletin-board."
@@ -12,6 +12,7 @@ keywords = ["Merkle", "bulletin", "verifiable", "board","merkle-tree"]
 categories = ["cryptography", "data-structures"]
 
 [dependencies]
-merkle-tree-bulletin-board = "0.2"
-anyhow = "1.0"
+merkle-tree-bulletin-board = "0.3"
+# merkle-tree-bulletin-board = { path = "../merkle-tree-bulletin-board" }
+
 mysql = "23"

@@ -1,11 +1,10 @@
 //! A journalling backend for the database based on csv files.
 
 use std::path::PathBuf;
-use crate::{DatabaseTransaction, BulletinBoardBackend};
+use crate::{DatabaseTransaction, BulletinBoardBackend, BulletinBoardError};
 use crate::hash_history::{HashSource, HashInfo};
 use crate::hash::HashValue;
 use std::fs::{OpenOptions, File};
-use anyhow::anyhow;
 use crate::backend_flatfile::{write_transaction_to_csv, TransactionIterator};
 use std::collections::HashSet;
 use std::iter::FromIterator;
@@ -52,17 +51,17 @@ pub struct BackendJournal<B:BulletinBoardBackend> {
 }
 
 impl <B:BulletinBoardBackend> BulletinBoardBackend for BackendJournal<B> {
-    fn get_all_published_roots(&self) -> anyhow::Result<Vec<HashValue>> { self.main_backend.get_all_published_roots()  }
+    fn get_all_published_roots(&self) -> Result<Vec<HashValue>,BulletinBoardError> { self.main_backend.get_all_published_roots()  }
 
-    fn get_most_recent_published_root(&self) -> anyhow::Result<Option<HashValue>> { self.main_backend.get_most_recent_published_root() }
+    fn get_most_recent_published_root(&self) -> Result<Option<HashValue>,BulletinBoardError> { self.main_backend.get_most_recent_published_root() }
 
-    fn get_all_leaves_and_branches_without_a_parent(&self) -> anyhow::Result<Vec<HashValue>> { self.main_backend.get_all_leaves_and_branches_without_a_parent() }
+    fn get_all_leaves_and_branches_without_a_parent(&self) -> Result<Vec<HashValue>,BulletinBoardError> { self.main_backend.get_all_leaves_and_branches_without_a_parent() }
 
-    fn get_hash_info(&self, query: HashValue) -> anyhow::Result<Option<HashInfo>> { self.main_backend.get_hash_info(query) }
+    fn get_hash_info(&self, query: HashValue) -> Result<Option<HashInfo>,BulletinBoardError> { self.main_backend.get_hash_info(query) }
 
     /// Publish both to the original backend, and the journal.
     /// The original is published to first; this means that in the case of an unfortunate power loss or similar, the journal may miss the last record.
-    fn publish(&mut self, transaction: &DatabaseTransaction) -> anyhow::Result<()> {
+    fn publish(&mut self, transaction: &DatabaseTransaction) -> Result<(),BulletinBoardError> {
         self.main_backend.publish(transaction)?;
         {
             let file = OpenOptions::new().append(true).create(true).open(&self.pending_path())?;
@@ -89,7 +88,7 @@ impl <B:BulletinBoardBackend> BulletinBoardBackend for BackendJournal<B> {
     }
 
     /// Horrendously inefficient - rebuilds all.
-    fn censor_leaf(&mut self, leaf_to_censor: HashValue) -> anyhow::Result<()> {
+    fn censor_leaf(&mut self, leaf_to_censor: HashValue) -> Result<(),BulletinBoardError> {
         // Err(anyhow!("BackendJournal does not support censorship! Keep {} free!",leaf_to_censor)) // OK, I could have just prepended leaf_to_censor by an underscore to stop the compiler complaining about leaf_to_censor not being used, and that would have produced slightly smaller code. But...I also could have just returned RTFM which would be shorter still and who would want that?
         self.main_backend.censor_leaf(leaf_to_censor)?;
         self.rebuild_all_journals()
@@ -120,13 +119,13 @@ impl <B:BulletinBoardBackend> BackendJournal<B> {
     /// should have no parents. As each transaction changes this list other than a root publication
     /// (which should not be in the pending file anyway), this is a reasonable check for a truncated
     /// pending file, which may have resulted from a bad shutdown.
-    pub fn verify_current_consistent(&self) -> anyhow::Result<()> {
+    pub fn verify_current_consistent(&self) -> Result<(),BulletinBoardError> {
         // First get the nodes that are left over from the last publication.
         let preexisting_nodes : Vec<HashValue> = if let Some(last_root) = self.main_backend.get_most_recent_published_root()? {
-            if !std::path::Path::new(&self.hash_path(last_root)).exists() { return Err(anyhow!("Last published root hash does not exist")); }
-            match self.main_backend.get_hash_info(last_root)?.unwrap() {
-                HashInfo { source: HashSource::Root(history), .. } => history.elements,
-                _ => return Err(anyhow!("Last published root hash is not a root")),
+            if !std::path::Path::new(&self.hash_path(last_root)).exists() { return Err(BulletinBoardError::BackendInconsistentError(format!("Last published root hash does not exist"))); } // TODO should these not be top level roots?
+            match self.main_backend.get_hash_info(last_root)? {
+                Some(HashInfo { source: HashSource::Root(history), .. }) => history.elements,
+                _ => return Err(BulletinBoardError::BackendInconsistentError(format!("Last oublished root hash is not actually a root node"))),
             }
         } else {vec![]};
         let mut current_nodes : HashSet<HashValue> = HashSet::from_iter(preexisting_nodes.into_iter());
@@ -138,22 +137,22 @@ impl <B:BulletinBoardBackend> BackendJournal<B> {
                     match source {
                         HashSource::Leaf(_) => { }
                         HashSource::Branch(history) => {
-                            if !current_nodes.remove(&history.left) { return Err(anyhow!("Pending file contains a branch with unexpected left hash {}",history.left)); }
-                            if !current_nodes.remove(&history.right) { return Err(anyhow!("Pending file contains a branch with unexpected right hash {}",history.right)); }
+                            if !current_nodes.remove(&history.left) { return Err(BulletinBoardError::BackendInconsistentError(format!("Pending file contains a branch with unexpected left hash {}",history.left))); }
+                            if !current_nodes.remove(&history.right) { return Err(BulletinBoardError::BackendInconsistentError(format!("Pending file contains a branch with unexpected right hash {}",history.right))); }
                         }
-                        HashSource::Root(_) => return Err(anyhow!("Pending file contains a root")),
+                        HashSource::Root(_) => return Err(BulletinBoardError::BackendInconsistentError(format!("Pending file contains a root"))),
                     }
                 }
             }
         }
         let expected : Vec<HashValue> = self.main_backend.get_all_leaves_and_branches_without_a_parent()?;
         let expected_set : HashSet<HashValue> = HashSet::from_iter(expected.into_iter());
-        if expected_set != current_nodes { return Err(anyhow!("Expecting to get {:#?} as nodes without parents; actually got {:#?}.",&expected_set,&current_nodes))}
+        if expected_set != current_nodes { return Err(BulletinBoardError::BackendInconsistentError(format!("Expecting to get {:#?} as nodes without parents; actually got {:#?}.",&expected_set,&current_nodes)))}
         Ok(())
     }
 
     /// recreate a data file from a set of transactions.
-    fn recreate(&self,name:PathBuf,should_be:Vec<DatabaseTransaction>) -> anyhow::Result<()> {
+    fn recreate(&self,name:PathBuf,should_be:Vec<DatabaseTransaction>) -> Result<(),BulletinBoardError> {
         let recreate_name = self.rel_path("recreating.csv");
         { // make the file in a different name to prevent clobbering something of possible diagnostic use if all is stuffed up to badly to recover.
             let file = File::create(&recreate_name)?;
@@ -229,7 +228,7 @@ impl <B:BulletinBoardBackend> BackendJournal<B> {
     /// assert!(BackendJournal::new(journal.into_inner(),dir.path(),
     ///     StartupVerification::SanityCheckPending).is_err());
     /// ```
-    pub fn new<P>(main_backend:B,directory: P,verification:StartupVerification) -> anyhow::Result<Self>
+    pub fn new<P>(main_backend:B,directory: P,verification:StartupVerification) -> Result<Self,BulletinBoardError>
     where PathBuf: From<P>
     {
         let directory = PathBuf::from(directory);
@@ -255,7 +254,7 @@ impl <B:BulletinBoardBackend> BackendJournal<B> {
         Ok(res)
     }
 
-    fn rebuild_all_journals(&self) -> anyhow::Result<()> {
+    fn rebuild_all_journals(&self) -> Result<(),BulletinBoardError> {
         for root in self.get_all_published_roots()?.into_iter().rev() {
             self.recreate(self.hash_path(root),crate::deduce_journal::deduce_journal_from_prior_root_to_given_root(self,root)?)?;
         }
